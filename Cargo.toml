@@ -1,0 +1,14 @@
+[package]
+name = "tuitty-rs"
+version = "0.1.0"
+authors = ["imdav"]
+edition = "2018"
+repository = "https://github.com/imdaveho/tuitty-rs"
+documentation = ""
+license = "MIT"
+keywords = ["tty", "tui", "terminal", "console", "windows", "linux", "cli", "tuitty"]
+exclude = ["target", "Cargo.lock"]
+readme = "README.md"
+
+[dependencies]
+tuitty = { path = "../tuitty"}
