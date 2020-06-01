@@ -3,7 +3,6 @@ mod router;
 use router::handle_action;
 
 use std::{
-    // io::Result,
     thread, collections::HashMap,
     time::{ SystemTime, UNIX_EPOCH, Duration },
     sync::{
@@ -11,6 +10,7 @@ use std::{
         Arc, Mutex, atomic::{ AtomicBool, AtomicUsize, Ordering },
     },
 };
+use crate::store::Store;
 use message::{
     Action::{*, self}, Cmd::{*, self}, 
     Msg::{*, self}, Query::*, Reply 
@@ -19,11 +19,11 @@ use crate::tuitty::common::enums::{
     InputEvent::{*, self}, Clear,
     Style, Color::Reset, Effect
 };
+use crate::tuitty::terminal::Term;
 #[cfg(unix)]
 use crate::tuitty::parser::unix;
 #[cfg(windows)]
 use crate::tuitty::parser::windows;
-use crate::tuitty::terminal::Term;
 
 
 const DELAY: u64 = 10;
@@ -170,33 +170,36 @@ impl Dispatcher {
         let is_running_ref = is_running.clone();
         let lock_owner_ref = lock_owner.clone();
 
-        // // Fetch terminal default state in main thread.
-        // #[cfg(unix)]
-        // let (initial, col, row, tab_size) = match fetch_defaults() {
-        //     Ok((initial, col, row, tab_size)) => 
-        //         (initial, col, row, tab_size),
-        //     Err(e) => panic!("Error fetching terminal defaults: {:?}", e)
-        // };
+        // Fetch terminal default state in main thread.
+        #[cfg(unix)]
+        let (initial, col, row, tab_size) = match fetch_defaults() {
+            Ok((initial, col, row, tab_size)) => 
+                (initial, col, row, tab_size),
+            Err(e) => panic!("Error fetching terminal defaults: {:?}", e)
+        };
 
-        // #[cfg(windows)]
-        // let (initial, col, row, tab_size) = match fetch_defaults() {
-        //     Ok((mode, reset, ansi, col, row, tab_size)) =>
-        //         ((mode, reset, ansi), col, row, tab_size),
-        //     Err(e) => panic!("Error fetching terminal defaults: {:?}", e)
-        // };
+        #[cfg(windows)]
+        let (initial, col, row, tab_size) = match fetch_defaults() {
+            Ok((mode, reset, ansi, col, row, tab_size)) =>
+                ((mode, reset, ansi), col, row, tab_size),
+            Err(e) => panic!("Error fetching terminal defaults: {:?}", e)
+        };
 
          // Start signal loop.
         let (signal_tx, signal_rx) = channel();
         let signal_handle = thread::spawn(move || {
-            // // Initialize the internal buffer.
-            // let mut store = Store::new();
-            // store.sync_tab_size(tab_size);
-
             let mut term = Term::new()
                 .expect("Error initializing the Term struct.");
-            // #[cfg(windows)]
-            // term.with(initial.0, initial.1, initial.2);
-            // store.sync_goto(col, row);
+            // Initialize the internal buffer.
+            #[cfg(unix)]
+            let (w, h) = term.size();
+            #[cfg(windows)]
+            let (w, h) = term.size().expect("Error fetching terminal size.");
+            let mut store = Store::new(w, h);
+            store.sync_tab_size(tab_size);
+            #[cfg(windows)]
+            term.with(initial.0, initial.1, initial.2);
+            store.sync_goto(col, row);
 
             loop {
                 // Include minor delay so the thread isn't blindly using CPU.
@@ -264,7 +267,7 @@ impl Dispatcher {
                             }
                         },
 
-                        Signal(action) => handle_action(action, &mut term),
+                        Signal(action) => handle_action(action, &mut term, &mut store),
 
                         Request(query) => match query {
                             Size(id) => {
@@ -518,3 +521,29 @@ impl Dispatcher {
     }
 }
 
+
+#[cfg(unix)]
+fn fetch_defaults() -> std::io::Result<(libc::termios, i16, i16, usize)> {
+    let term = Term::new()?;
+    let initial = term.init_data();
+    term.raw()?;
+    let (col, row) = term.pos_raw()?;
+    term.printf("\t")?;
+    let (tab_col, _) = term.pos()?;
+    let tab_size = (tab_col - col) as usize;
+    term.printf("\r")?;
+    Ok((initial, col, row, tab_size))
+}
+
+
+#[cfg(windows)]
+fn fetch_defaults() -> std::io::Result<(u32, u16, bool, i16, i16, usize)> {
+    let term = Term::new()?;
+    let (mode, reset, ansi) = term.init_data();
+    let (col, row) = term.pos()?;
+    term.printf("\t")?;
+    let (tab_col, _) = term.pos()?;
+    let tab_size = (tab_col - col) as usize;
+    term.printf("\r")?;
+    Ok((mode, reset, ansi, col, row, tab_size))
+}

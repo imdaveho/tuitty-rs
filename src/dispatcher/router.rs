@@ -1,10 +1,11 @@
 use crate::tuitty::terminal::Term;
 use crate::tuitty::common::enums::{Color::*, Effect};
+use crate::store::Store;
 use super::message::Action::{*, self};
 
 
 // pub fn match_signal(action: Action, term: &mut Term, store: &mut Store) {
-pub fn handle_action(action: Action, term: &mut Term) {
+pub fn handle_action(action: Action, term: &mut Term, store: &mut Store) {
     match action {
         Goto(col, row) => {
             // Prevent out-of-bounds.
@@ -22,7 +23,7 @@ pub fn handle_action(action: Action, term: &mut Term) {
                 Ok(_) => (),
                 Err(e) => {}
             }
-            // store.sync_goto(col, row);
+            store.sync_goto(col, row);
         }
 
         Up(n) => {
