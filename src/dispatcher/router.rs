@@ -76,17 +76,10 @@ pub fn handle_action(
             Ok(())
         },
         
-        // Prints(s) => {
-        //     term.prints(&s)?;
-        //     store.sync_content(&s);
-        //     Ok(())
-        // },
-        
-        // Printf(s) => {
-        //     term.printf(&s)?;
-        //     store.sync_content(&s);
-        //     Ok(())
-        // },
+        Prints(s) => {
+            store.sync_content(&s);
+            Ok(())
+        },
 
         SetContent(s, c, r) => {
             store.sync_goto(c, r);

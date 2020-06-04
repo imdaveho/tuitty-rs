@@ -28,8 +28,7 @@ pub enum Action {
     // TODO: CursorPos
     // SCREEN/OUTPUT
     Clear(Clear),
-    // Prints(String),
-    // Printf(String),
+    Prints(String),
     SetContent(String, i16, i16),
     Flush,
     Render,
@@ -45,8 +44,6 @@ pub enum Action {
     ShowCursor,
     EnableMouse,
     DisableMouse,
-    // EnableAlt,
-    // DisableAlt,
     Raw,
     Cook,
     // INTERNAL BUFFER
