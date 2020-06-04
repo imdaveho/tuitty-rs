@@ -25,7 +25,6 @@ pub enum Action {
     Down(i16),
     Left(i16),
     Right(i16),
-    // TODO: CursorPos
     // SCREEN/OUTPUT
     Clear(Clear),
     Prints(String),
@@ -58,15 +57,19 @@ pub enum Action {
 pub enum Query {
     Size(usize),
     Coord(usize),
+    Pos(usize),
     GetCh(usize),
     Screen(usize),
+    IsRaw(usize),
 }
 
 #[derive(Clone)]
 pub enum Reply {
     Size(i16, i16),
     Coord(i16, i16),
+    Pos(i16, i16),
     GetCh(String),
     Screen(usize),
+    IsRaw(bool),
     Empty
 }

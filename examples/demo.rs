@@ -46,8 +46,12 @@ fn main() {
                 },
                 _ => (),
             }
-            let (x, y) = match background.request("coord") {
-                Ok(Reply::Coord(col, row)) => (col, row),
+            // let (x, y) = match background.request("coord") {
+            //     Ok(Reply::Coord(col, row)) => (col, row),
+            //     _ => (0, 0)
+            // };
+            let (x, y) = match background.request("pos") {
+                Ok(Reply::Pos(col, row)) => (col, row),
                 _ => (0, 0)
             };
             // background.signal(Prints(s));

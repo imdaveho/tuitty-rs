@@ -62,8 +62,6 @@ pub fn handle_action(
             Ok(())
         },
 
-        // TODO: CursorPos
-
         Clear(clr) => {
             term.clear(clr)?;
             store.sync_clear(clr);

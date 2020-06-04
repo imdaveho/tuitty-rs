@@ -12,9 +12,10 @@ use std::{
 use crate::store::Store;
 use message::{
     Action, Cmd::{*, self},
-    Msg::{*, self}, Query::*, Reply
+    Msg::{*, self}, Query::*, Reply,
 };
 use crate::tuitty_core::terminal::Term;
+use crate::tuitty_core::common::enums::InputEvent;
 
 #[cfg(unix)]
 use crate::tuitty_core::parser::unix;
@@ -79,6 +80,36 @@ impl EventHandle {
                 loop {
                     if let Some(Msg::Response(r)) = iter.next() {
                         return Ok(r)
+                    }
+                }
+            },
+            "pos" => {
+                // Determine if the current screen is in raw mode.
+                self.signal_tx.send(Request(IsRaw(self.id)))?;
+                let mut iter = self.event_rx.iter();
+                let is_raw: bool;
+                loop {
+                    if let Some(Msg::Response(r)) = iter.next() {
+                        if let Reply::IsRaw(b) = r {
+                            is_raw = b;
+                            break
+                        }
+                    }
+                }
+                // Set it to raw temporarily, if not in raw mode.
+                if !is_raw { self.signal_tx.send(Signal(Action::Raw))? }
+                // Request the cursor position and 
+                self.signal_tx.send(Request(Pos(self.id)))?;
+                let mut iter = self.event_rx.iter();
+                loop {
+                    if let Some(Msg::Received(iv)) = iter.next() {
+                        if let InputEvent::CursorPos(col, row) = iv {
+                            // Revert back to cooked mode.
+                            if !is_raw { 
+                                self.signal_tx.send(Signal(Action::Cook))?
+                            }
+                            return Ok(Reply::Pos(col, row));
+                        }
                     }
                 }
             },
@@ -299,6 +330,49 @@ impl Dispatcher {
                                 }
                             },
 
+                            #[cfg(unix)]
+                            Pos(id) => {
+                                // Lock the receiver that requested pos:
+                                match lock_owner_ref.load(Ordering::SeqCst) {
+                                    0 => lock_owner_ref
+                                        .store(id, Ordering::SeqCst),
+                                    _ => continue,
+                                }
+                                match term.query_pos() {
+                                    Ok(_) => (),
+                                    Err(_) => match term.query_pos() {
+                                        Ok(_) => (),
+                                        Err(_) => {
+                                            is_running_ref.store(false, 
+                                                Ordering::SeqCst);
+                                            break
+                                        }
+                                    }
+                                }
+                                // Now unlock the receiver after pos call:
+                                match lock_owner_ref.load(Ordering::SeqCst) {
+                                    0 => continue,
+                                    _ => lock_owner_ref
+                                        .store(0, Ordering::SeqCst),
+                                }
+                            },
+
+                            #[cfg(windows)]
+                            Pos(id) => {
+                                let roster = match emitters_ref.lock() {
+                                    Ok(r) => r,
+                                    Err(_) => match emitters_ref.lock() {
+                                        Ok(r) => r,
+                                        Err(_) => continue
+                                    },
+                                };
+                                if let Some(tx) = roster.get(&id) {
+                                    let (col, row) = term.pos();
+                                    let _ = tx.event_tx.send(Response(
+                                        Reply::Pos(col, row)));
+                                }
+                            },
+
                             GetCh(id) => {
                                 let roster = match emitters_ref.lock() {
                                     Ok(r) => r,
@@ -326,6 +400,21 @@ impl Dispatcher {
                                     let i = store.id();
                                     let _ = tx.event_tx.send(Response(
                                         Reply::Screen(i)));
+                                }
+                            },
+
+                            IsRaw(id) => {
+                                let roster = match emitters_ref.lock() {
+                                    Ok(r) => r,
+                                    Err(_) => match emitters_ref.lock() {
+                                        Ok(r) => r,
+                                        Err(_) => continue
+                                    },
+                                };
+                                if let Some(tx) = roster.get(&id) {
+                                    let b = store.is_raw();
+                                    let _ = tx.event_tx.send(Response(
+                                        Reply::IsRaw(b)));
                                 }
                             }
                         }
