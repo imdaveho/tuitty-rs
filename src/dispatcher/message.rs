@@ -60,7 +60,7 @@ pub enum Query {
     Pos(usize),
     GetCh(usize),
     Screen(usize),
-    IsRaw(usize),
+    _IsRaw(usize),
 }
 
 #[derive(Clone)]
@@ -70,6 +70,6 @@ pub enum Reply {
     Pos(i16, i16),
     GetCh(String),
     Screen(usize),
-    IsRaw(bool),
+    _IsRaw(bool),
     Empty
 }

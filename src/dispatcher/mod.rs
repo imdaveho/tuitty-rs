@@ -85,12 +85,12 @@ impl EventHandle {
             },
             "pos" => {
                 // Determine if the current screen is in raw mode.
-                self.signal_tx.send(Request(IsRaw(self.id)))?;
+                self.signal_tx.send(Request(_IsRaw(self.id)))?;
                 let mut iter = self.event_rx.iter();
                 let is_raw: bool;
                 loop {
                     if let Some(Msg::Response(r)) = iter.next() {
-                        if let Reply::IsRaw(b) = r {
+                        if let Reply::_IsRaw(b) = r {
                             is_raw = b;
                             break
                         }
@@ -143,18 +143,6 @@ impl EventHandle {
             _ => Ok(Reply::Empty)
         }
     }
-
-    // TODO: CursorPos
-    // pub fn syspos(&self) -> (i16, i16) {
-    //     let _ = self.signal_tx.send(
-    //         Request(State::SysPos(self.id)));
-    //     let mut iter = self.event_rx.iter();
-    //     loop {
-    //         if let Some(Dispatch(SysPos(col, row))) = iter.next() {
-    //             return (col, row)
-    //         }
-    //     }
-    // }
 }
 
 
@@ -403,7 +391,8 @@ impl Dispatcher {
                                 }
                             },
 
-                            IsRaw(id) => {
+                            // Internal Use Only
+                            _IsRaw(id) => {
                                 let roster = match emitters_ref.lock() {
                                     Ok(r) => r,
                                     Err(_) => match emitters_ref.lock() {
@@ -414,7 +403,7 @@ impl Dispatcher {
                                 if let Some(tx) = roster.get(&id) {
                                     let b = store.is_raw();
                                     let _ = tx.event_tx.send(Response(
-                                        Reply::IsRaw(b)));
+                                        Reply::_IsRaw(b)));
                                 }
                             }
                         }
