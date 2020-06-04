@@ -1,4 +1,4 @@
-use crate::tuitty::common::enums::*;
+use crate::tuitty_core::common::enums::*;
 
 #[derive(Clone)]
 pub enum Msg {
@@ -48,8 +48,8 @@ pub enum Action {
     Raw,
     Cook,
     // INTERNAL BUFFER
-    Switch,
-    SwitchTo(usize),
+    NewScreen,
+    Switch(usize),
     Resized,
     SyncMarker(i16, i16),
     Jump,

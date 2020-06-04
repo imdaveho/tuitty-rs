@@ -11,10 +11,4 @@ exclude = ["target", "Cargo.lock"]
 readme = "README.md"
 
 [dependencies]
-tuitty = { path = "../tuitty"}
-
-[target.'cfg(unix)'.dependencies]
-libc = "0.2.60"
-
-[target.'cfg(windows)'.dependencies]
-winapi = { version =  "0.3.7", features = ["wincon", "winbase", "winuser", "winnt", "consoleapi", "processenv", "handleapi"] }
+tuitty-core = { path = "../tuitty-core"}

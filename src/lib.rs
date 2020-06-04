@@ -1,4 +1,4 @@
-extern crate tuitty;
+extern crate tuitty_core;
 
-mod dispatcher;
 mod store;
+pub mod dispatcher;

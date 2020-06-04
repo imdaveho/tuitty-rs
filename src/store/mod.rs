@@ -2,8 +2,8 @@ mod buffer;
 use buffer::ScreenBuffer;
 
 use std::io::{ Result, Error, ErrorKind };
-use crate::tuitty::terminal::Term;
-use crate::tuitty::common::enums::{ Clear, Color, Style };
+use crate::tuitty_core::terminal::Term;
+use crate::tuitty_core::common::enums::{ Clear, Color, Style };
 
 
 struct Screen {
@@ -172,12 +172,6 @@ impl Store {
         self.data[self.id].buffer.sync_clear(clr);
     }
 
-    #[cfg(unix)]
-    pub fn render(&self) {
-        self.data[self.id].buffer.render();
-    }
-
-    #[cfg(windows)]
     pub fn render(&self, term: &Term) -> Result<()> {
         self.data[self.id].buffer.render(term)
     }

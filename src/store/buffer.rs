@@ -1,11 +1,12 @@
 // This module provides an internal representation of the contents that
 // make up the terminal screen.
-use crate::tuitty::common::{
-    unicode::{grapheme::*, wcwidth::*},
-    enums::{ Effect, foreground, background, effects }
-};
+use crate::tuitty_core::common::unicode::{grapheme::*, wcwidth::*};
 use super::{ Term, Color::{*, self}, Style, Clear };
 
+#[cfg(unix)]
+use crate::tuitty_core::common::enums::Effect;
+#[cfg(windows)]
+use crate::tuitty_core::common::enums::{Effect, foreground, background, effects};
 #[cfg(windows)]
 use winapi::shared::minwindef::WORD;
 
@@ -18,16 +19,16 @@ pub struct Cell {
     style: (Color, Color, u32),
 }
 
-impl Cell {
-    pub fn new(style: (Color, Color, u32)) -> Cell {
-        Cell {
-            glyph: vec![' '],
-            is_part: false,
-            is_wide: false,
-            style
-        }
-    }
-}
+// impl Cell {
+//     pub fn new(style: (Color, Color, u32)) -> Cell {
+//         Cell {
+//             glyph: vec![' '],
+//             is_part: false,
+//             is_wide: false,
+//             style
+//         }
+//     }
+// }
 
 
 pub struct ScreenBuffer {
@@ -56,6 +57,7 @@ impl ScreenBuffer {
         }
     }
 
+    #[allow(clippy::comparison_chain)]
     fn cursor(&mut self) -> usize {
         let mut index = self.cursor;
         // Start at the origin cell.
@@ -201,67 +203,61 @@ impl ScreenBuffer {
         self.cells.resize(self.capacity, None);
     }
 
-    pub fn sync_window(&mut self, w: i16, h: i16) {
-        self.sync_size(w, h);
-    }
+    // pub fn sync_window(&mut self, w: i16, h: i16) {
+    //     self.sync_size(w, h);
+    // }
 
     pub fn getch(&self) -> String {
         let index = self.cursor;
         match &self.cells[index] {
-            Some(cell) => match cell.is_part {
-                true => {
-                    match &self.cells[index - 1] {
-                        Some(cell) => return cell.glyph.iter().collect(),
-                        None => return format!(" ")
-                    }
-                },
-                false => cell.glyph.iter().collect(),
-            },
-            None => format!(" "),
+            Some(cell) => if cell.is_part {
+                match &self.cells[index - 1] {
+                    Some(cell) => cell.glyph.iter().collect(),
+                    None => " ".to_string(),
+                }
+            } else { cell.glyph.iter().collect() },
+            None => " ".to_string(),
         }
     }
 
-    pub fn delch(&mut self) {
-        // Eg. Backspace moves cursor left 1 cell. This should have called
-        // something that updated the cursor to the starting cell. Therefore
-        // the index would be in-bounds and at a starting point.
-        let index = self.cursor;
-        match &self.cells[index] {
-            Some(cell) => match cell.is_part {
-                true => {
-                    // Technically, impossible to hit since self.cursor()
-                    // should always land on a normal cell (vs a partial one).
-                    // However, in the case that somehow the index is a 
-                    // partial cell, we remove the normal cell left of it, 
-                    // and once it is deleted, the partial cell is now in 
-                    // index - 1 and ready for deletion as well.
-                    for _ in 0..2 {
-                        self.cells.remove(index - 1);
-                        self.cells.push(None);
-                    }
-                    self.cursor = index - 1;
-                },
-                false => {
-                    // In this case, we delete the normal cell under the cursor,
-                    // and when the vec shifts to the left, the existing index
-                    // will remove the partial cell that has shifted into position.
-                    if cell.is_wide {
-                        for _ in 0..2 {
-                            self.cells.remove(index);
-                            self.cells.push(None);
-                        }
-                    } else {
-                        self.cells.remove(index);
-                        self.cells.push(None);
-                    }
-                }
-            }
-            None => {
-                self.cells.remove(index);
-                self.cells.push(None);
-            }
-        };
-    }
+    // pub fn delch(&mut self) {
+    //     // Eg. Backspace moves cursor left 1 cell. This should have called
+    //     // something that updated the cursor to the starting cell. Therefore
+    //     // the index would be in-bounds and at a starting point.
+    //     let index = self.cursor;
+    //     match &self.cells[index] {
+    //         Some(cell) => if cell.is_part {
+    //             // Technically, impossible to hit since self.cursor()
+    //             // should always land on a normal cell (vs a partial one).
+    //             // However, in the case that somehow the index is a
+    //             // partial cell, we remove the normal cell left of it,
+    //             // and once it is deleted, the partial cell is now in
+    //             // index - 1 and ready for deletion as well.
+    //             for _ in 0..2 {
+    //                 self.cells.remove(index - 1);
+    //                 self.cells.push(None);
+    //             }
+    //             self.cursor = index - 1;
+    //         } else {
+    //             // In this case, we delete the normal cell under the cursor,
+    //             // and when the vec shifts to the left, the existing index
+    //             // will remove the partial cell that has shifted into position.
+    //             if cell.is_wide {
+    //                 for _ in 0..2 {
+    //                     self.cells.remove(index);
+    //                     self.cells.push(None);
+    //                 }
+    //             } else {
+    //                 self.cells.remove(index);
+    //                 self.cells.push(None);
+    //             }
+    //         },
+    //         None => {
+    //             self.cells.remove(index);
+    //             self.cells.push(None);
+    //         }
+    //     };
+    // }
 
     pub fn sync_style(&mut self, style: Style) {
         match style {
@@ -278,46 +274,43 @@ impl ScreenBuffer {
     fn set_cell(&mut self, ch: Vec<char>, is_wide: bool) {
         let mut index = self.cursor;
         if index >= self.capacity { index = self.capacity - 1 }
-        match is_wide {
-            true => {
-                self.cells.remove(index);
-                self.cells.insert(index, Some(Cell {
-                    glyph: ch,
-                    is_wide: true,
-                    is_part: false,
-                    style: self.active_style,
-                }));
+        if is_wide {
+            self.cells.remove(index);
+            self.cells.insert(index, Some(Cell {
+                glyph: ch,
+                is_wide: true,
+                is_part: false,
+                style: self.active_style,
+            }));
+            self.cells.remove(index + 1);
+            self.cells.insert(index + 1, Some(Cell {
+                glyph: vec![],
+                is_wide: true,
+                is_part: true,
+                style: self.active_style,
+            }));
+            self.cursor = index + 2;
+        } else {
+            let mut from_wide = false;
+            // If cell below is wide and new cell is single,
+            // we would need to clear out the partial cell.
+            if let Some(cell) = &self.cells[index] {
+                if cell.is_wide { from_wide = true }
+            }
+            self.cells.remove(index);
+            self.cells.insert(index, Some(Cell {
+                glyph: ch,
+                is_wide: false,
+                is_part: false,
+                style: self.active_style,
+            }));
+            self.cursor = index + 1;
+            if from_wide {
                 self.cells.remove(index + 1);
-                self.cells.insert(index + 1, Some(Cell {
-                    glyph: vec![],
-                    is_wide: true,
-                    is_part: true,
-                    style: self.active_style,
-                }));
+                self.cells.insert(index + 1, None);
+                // Keep the spacing from 2 cells occupied to
+                // the first cell updated and the second cell blank.
                 self.cursor = index + 2;
-            },
-            false => {
-                let mut from_wide = false;
-                // If cell below is wide and new cell is single,
-                // we would need to clear out the partial cell.
-                if let Some(cell) = &self.cells[index] {
-                    if cell.is_wide { from_wide = true }
-                }
-                self.cells.remove(index);
-                self.cells.insert(index, Some(Cell {
-                    glyph: ch,
-                    is_wide: false,
-                    is_part: false,
-                    style: self.active_style,
-                }));
-                self.cursor = index + 1;
-                if from_wide {
-                    self.cells.remove(index + 1);
-                    self.cells.insert(index + 1, None);
-                    // Keep the spacing from 2 cells occupied to
-                    // the first cell updated and the second cell blank.
-                    self.cursor = index + 2;
-                }
             }
         }
     }
@@ -428,9 +421,9 @@ impl ScreenBuffer {
 
    
     #[cfg(unix)]
-    pub fn render(&self, term: &Term) {
+    pub fn render(&self, term: &Term) -> std::io::Result<()> {
         let (col, row) = self.coord();
-        term.goto(0, 0);
+        term.goto(0, 0)?;
         let default = (Reset, Reset, Effect::Reset as u32);
         let mut style = (Reset, Reset, Effect::Reset as u32);
         let mut chunk = String::with_capacity(self.capacity);
@@ -439,29 +432,29 @@ impl ScreenBuffer {
                 if c.is_part { continue }
                 // Complete reset.
                 if style != c.style && c.style == default {
-                    term.prints(&chunk);
+                    term.prints(&chunk)?;
                     chunk.clear();
-                    term.reset_styles();
+                    term.reset_styles()?;
                     style = default;
                     for ch in &c.glyph { chunk.push(*ch) }
                 }
                 // Some styles are different.
                 else if style != c.style {
-                    term.prints(&chunk);
+                    term.prints(&chunk)?;
                     chunk.clear();
                     // Different Fg.
                     if style.0 != c.style.0 {
-                        term.set_fg(c.style.0);
+                        term.set_fg(c.style.0)?;
                         style.0 = c.style.0;
                     }
                     // Different Bg.
                     if style.1 != c.style.1 {
-                        term.set_bg(c.style.1);
+                        term.set_bg(c.style.1)?;
                         style.1 = c.style.1;
                     }
                     // Different Fx.
                     if style.2 != c.style.2 {
-                        term.set_fx(c.style.2);
+                        term.set_fx(c.style.2)?;
                         style.2 = c.style.2;
                     }
                     for ch in &c.glyph { chunk.push(*ch) }
@@ -474,17 +467,18 @@ impl ScreenBuffer {
                 if style == default { chunk.push(' ') }
                 // Reset the previous style.
                 else {
-                    term.prints(&chunk);
+                    term.prints(&chunk)?;
                     chunk.clear();
-                    term.reset_styles();
+                    term.reset_styles()?;
                     style = default;
                     chunk.push(' ');
                 }
             }
         }}
-        if chunk.len() > 0 { term.prints(&chunk) }
-        term.goto(col, row);
-        term.flush();
+        if !chunk.is_empty() { term.prints(&chunk)? }
+        term.goto(col, row)?;
+        term.flush()?;
+        Ok(())
     }
 
     #[cfg(windows)]

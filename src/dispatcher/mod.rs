@@ -1,4 +1,3 @@
-mod message;
 mod router;
 use router::handle_action;
 
@@ -12,19 +11,17 @@ use std::{
 };
 use crate::store::Store;
 use message::{
-    Action::{*, self}, Cmd::{*, self}, 
-    Msg::{*, self}, Query::*, Reply 
+    Action, Cmd::{*, self},
+    Msg::{*, self}, Query::*, Reply
 };
-use crate::tuitty::common::enums::{
-    InputEvent::{*, self}, Clear,
-    Style, Color::Reset, Effect
-};
-use crate::tuitty::terminal::Term;
+use crate::tuitty_core::terminal::Term;
+
 #[cfg(unix)]
-use crate::tuitty::parser::unix;
+use crate::tuitty_core::parser::unix;
 #[cfg(windows)]
 use crate::tuitty::parser::windows;
 
+pub mod message;
 
 const DELAY: u64 = 10;
 
@@ -172,16 +169,16 @@ impl Dispatcher {
 
         // Fetch terminal default state in main thread.
         #[cfg(unix)]
-        let (initial, col, row, tab_size) = match fetch_defaults() {
-            Ok((initial, col, row, tab_size)) => 
-                (initial, col, row, tab_size),
+        let (col, row, tab_size) = match fetch_defaults() {
+            Ok((col, row, tab_size)) =>
+                (col, row, tab_size),
             Err(e) => panic!("Error fetching terminal defaults: {:?}", e)
         };
 
         #[cfg(windows)]
-        let (initial, col, row, tab_size) = match fetch_defaults() {
+        let (mode, reset, ansi, col, row, tab_size) = match fetch_defaults() {
             Ok((mode, reset, ansi, col, row, tab_size)) =>
-                ((mode, reset, ansi), col, row, tab_size),
+                (mode, reset, ansi, col, row, tab_size),
             Err(e) => panic!("Error fetching terminal defaults: {:?}", e)
         };
 
@@ -190,15 +187,12 @@ impl Dispatcher {
         let signal_handle = thread::spawn(move || {
             let mut term = Term::new()
                 .expect("Error initializing the Term struct.");
-            // Initialize the internal buffer.
-            #[cfg(unix)]
-            let (w, h) = term.size();
             #[cfg(windows)]
+            term.with(mode, reset, ansi);
+            // Initialize the internal buffer.
             let (w, h) = term.size().expect("Error fetching terminal size.");
             let mut store = Store::new(w, h);
             store.sync_tab_size(tab_size);
-            #[cfg(windows)]
-            term.with(initial.0, initial.1, initial.2);
             store.sync_goto(col, row);
 
             loop {
@@ -267,7 +261,12 @@ impl Dispatcher {
                             }
                         },
 
-                        Signal(action) => handle_action(action, &mut term, &mut store),
+                        Signal(action) => {
+                            match handle_action(action, &mut term, &mut store) {
+                                Ok(_) => (),
+                                Err(e) => {}
+                            }
+                        },
 
                         Request(query) => match query {
                             Size(id) => {
@@ -279,9 +278,9 @@ impl Dispatcher {
                                     },
                                 };
                                 if let Some(tx) = roster.get(&id) {
-                                    // let (w, h) = store.size();
-                                    // let _ = tx.event_tx.send(Response(
-                                    //     Reply::Size(w, h)));
+                                    let (w, h) = store.size();
+                                    let _ = tx.event_tx.send(Response(
+                                        Reply::Size(w, h)));
                                 }
                             },
 
@@ -294,9 +293,9 @@ impl Dispatcher {
                                     },
                                 };
                                 if let Some(tx) = roster.get(&id) {
-                                    // let (col, row) = store.coord();
-                                    // let _ = tx.event_tx.send(Response(
-                                    //     Reply::Coord(col, row)));
+                                    let (col, row) = store.coord();
+                                    let _ = tx.event_tx.send(Response(
+                                        Reply::Coord(col, row)));
                                 }
                             },
 
@@ -309,14 +308,25 @@ impl Dispatcher {
                                     },
                                 };
                                 if let Some(tx) = roster.get(&id) {
-                                    // let s = store.getch();
-                                    // let _ = tx.event_tx.send(REsponse(
-                                        // ReplyGetCh(s)));
+                                    let s = store.getch();
+                                    let _ = tx.event_tx.send(Response(
+                                        Reply::GetCh(s)));
                                 }
                             },
 
                             Screen(id) => {
-                                // TODO
+                                let roster = match emitters_ref.lock() {
+                                    Ok(r) => r,
+                                    Err(_) => match emitters_ref.lock() {
+                                        Ok(r) => r,
+                                        Err(_) => continue
+                                    },
+                                };
+                                if let Some(tx) = roster.get(&id) {
+                                    let i = store.id();
+                                    let _ = tx.event_tx.send(Response(
+                                        Reply::Screen(i)));
+                                }
                             }
                         }
                     },
@@ -456,18 +466,18 @@ impl Dispatcher {
                     if key == 0 { continue }
                     if !senders.contains_key(&key) { break }
                 }
-                return key;
+                key
             },
             Err(_) => {
-                return SystemTime::now()
-                        .duration_since(UNIX_EPOCH)
-                        .expect("Error fetching duration since 1970")
-                        .subsec_nanos() as usize;
+                SystemTime::now()
+                    .duration_since(UNIX_EPOCH)
+                    .expect("Error fetching duration since 1970")
+                    .subsec_nanos() as usize
             }
         }
     }
 
-    fn spawn(&self) -> EventHandle {
+    pub fn spawn(&self) -> EventHandle {
         // let err_msg = "Error obtaining emitter registry lock";
         let (event_tx, event_rx) = channel();
         let id = self.randomish();
@@ -504,6 +514,8 @@ impl Dispatcher {
 
         // Clear the emitters registery.
         // let lock_err = "Error obtaining emitters lock";
+        // let mut roster = self.emitters.lock().expect(lock_err);
+        // roster.clear();
         match self.emitters.lock() {
             Ok(mut roster) => roster.clear(),
             Err(_) => match self.emitters.lock() {
@@ -521,18 +533,24 @@ impl Dispatcher {
     }
 }
 
+impl Drop for Dispatcher {
+    fn drop(&mut self) {
+        self.shutdown().expect("Error on shutdown")
+    }
+}
+
 
 #[cfg(unix)]
-fn fetch_defaults() -> std::io::Result<(libc::termios, i16, i16, usize)> {
+fn fetch_defaults() -> std::io::Result<(i16, i16, usize)> {
     let term = Term::new()?;
-    let initial = term.init_data();
     term.raw()?;
-    let (col, row) = term.pos_raw()?;
+    let (col, row) = term.raw_pos()?;
     term.printf("\t")?;
-    let (tab_col, _) = term.pos()?;
+    let (tab_col, _) = term.raw_pos()?;
+    term.cook()?;
     let tab_size = (tab_col - col) as usize;
     term.printf("\r")?;
-    Ok((initial, col, row, tab_size))
+    Ok((col, row, tab_size))
 }
 
 
