@@ -76,19 +76,26 @@ pub fn handle_action(
             Ok(())
         },
         
-        Prints(s) => {
-            term.prints(&s)?;
-            store.sync_content(&s);
-            Ok(())
-        },
+        // Prints(s) => {
+        //     term.prints(&s)?;
+        //     store.sync_content(&s);
+        //     Ok(())
+        // },
         
-        Printf(s) => {
-            term.printf(&s)?;
+        // Printf(s) => {
+        //     term.printf(&s)?;
+        //     store.sync_content(&s);
+        //     Ok(())
+        // },
+
+        SetContent(s, c, r) => {
+            store.sync_goto(c, r);
             store.sync_content(&s);
             Ok(())
         },
-
+ 
         Flush => term.flush(),
+        Render => store.render(&term),
 
         SetFx(fx) => {
             term.set_fx(fx)?;
@@ -146,9 +153,8 @@ pub fn handle_action(
             Ok(())
         },
 
-        EnableAlt => term.enable_alt(),
-
-        DisableAlt => term.disable_alt(),
+        // EnableAlt => term.enable_alt(),
+        // DisableAlt => term.disable_alt(),
 
         Raw => {
             term.raw()?;
@@ -177,8 +183,7 @@ pub fn handle_action(
             term.flush()?;
             Ok(())
         },
-        #[cfg(unix)]
-        Switch(id) => {
+        SwitchTo(id) => {
             let current = store.id();
             // Bounds checking:
             if current == id { return Ok(()) }
@@ -193,7 +198,7 @@ pub fn handle_action(
                 if current == 0 { term.enable_alt()? }
                 term.clear(Clear::All)?;
             }
-            store.render(&term)?;
+            if id != 0 { store.render(&term)? }
             // Restore settings based on metadata.
             let (raw, mouse, show) = (
                 store.is_raw(),

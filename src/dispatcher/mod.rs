@@ -23,7 +23,7 @@ use crate::tuitty::parser::windows;
 
 pub mod message;
 
-const DELAY: u64 = 10;
+const DELAY: u64 = 3;
 
 pub struct EventHandle {
     id: usize,

@@ -11,13 +11,14 @@ use std::sync::{Arc, atomic::{AtomicBool, Ordering}};
 
 fn main() {
     let mut dispatch = Dispatcher::init();
-    dispatch.signal(Printf("Hello, World".to_string()));
-    thread::sleep(Duration::from_millis(1000));
+    // dispatch.signal(Printf("Hello, World".to_string()));
+    // thread::sleep(Duration::from_millis(1000));
 
     let main_input = dispatch.listen();
     let background = dispatch.spawn();
 
-    dispatch.signal(EnableAlt);
+    // dispatch.signal(EnableAlt);
+    dispatch.signal(NewScreen);
     dispatch.signal(Raw);
     dispatch.signal(HideCursor);
     dispatch.signal(EnableMouse);
@@ -49,13 +50,16 @@ fn main() {
                 Ok(Reply::Coord(col, row)) => (col, row),
                 _ => (0, 0)
             };
-            background.signal(Prints(s));
-            background.signal(Goto(12, 14));
-            background.signal(Prints(
-                format!("col: {}, row: {}", x, y)));
+            // background.signal(Prints(s));
+            // background.signal(Goto(12, 14));
+            // background.signal(Prints(
+                // format!("col: {}, row: {}", x, y)));
+            background.signal(SetContent(s, x, y));
+            let p = format!("col: {}, row: {}", x, y);
+            background.signal(SetContent(p, 12, 14));
             background.signal(Clear(ClearKind::NewLn));
-            thread::sleep(Duration::from_millis(400));
-            background.signal(Flush);
+            thread::sleep(Duration::from_millis(100));
+            // background.signal(Flush);
         }
     });
 
@@ -107,11 +111,16 @@ fn main() {
             };
 
         if &event != "" {
-            main_input.signal(Goto(0, 0));
-            main_input.signal(Prints(event));
+            // main_input.signal(Goto(0, 0));
+            // main_input.signal(Prints(event));
+            main_input.signal(SetFg(Color::Red));
+            main_input.signal(SetContent(event, 0, 0));
+            main_input.signal(ResetStyles);
             main_input.signal(Clear(ClearKind::NewLn));
         }
         thread::sleep(Duration::from_millis(10));
+        // main_input.signal(Flush);
+        main_input.signal(Render);
     }
 
     let _ = cycle_th.join();
@@ -119,43 +128,44 @@ fn main() {
     dispatch.signal(DisableMouse);
     dispatch.signal(ShowCursor);
     dispatch.signal(Cook);
-    dispatch.signal(DisableAlt);
+    // dispatch.signal(DisableAlt);
+    dispatch.signal(SwitchTo(0));
 
-    thread::sleep(Duration::from_millis(1000));
+    // thread::sleep(Duration::from_millis(1000));
 
-    dispatch.signal(NewScreen);
-    dispatch.signal(SetFg(Color::Yellow));
-    dispatch.signal(Goto(5, 5));
-    let sid = match main_input.request("screen") {
-        Ok(Reply::Screen(n)) => n,
-        _ => 0,
-    };
-    dispatch.signal(Printf(format!("Hello Screen #{}", sid)));
-    thread::sleep(Duration::from_millis(1000));
-    dispatch.signal(Switch(0));
-    thread::sleep(Duration::from_millis(1000));
+    // dispatch.signal(NewScreen);
+    // dispatch.signal(SetFg(Color::Yellow));
+    // dispatch.signal(Goto(5, 5));
+    // let sid = match main_input.request("screen") {
+    //     Ok(Reply::Screen(n)) => n,
+    //     _ => 0,
+    // };
+    // dispatch.signal(Printf(format!("Hello Screen #{}", sid)));
+    // thread::sleep(Duration::from_millis(1000));
+    // dispatch.signal(Switch(0));
+    // thread::sleep(Duration::from_millis(1000));
 
-    dispatch.signal(NewScreen);
-    dispatch.signal(SetFg(Color::Cyan));
-    dispatch.signal(Goto(5, 7));
-    let sid = match main_input.request("screen") {
-        Ok(Reply::Screen(n)) => n,
-        _ => 0,
-    };
-    dispatch.signal(Printf(format!("Hello Screen #{}", sid)));
-    thread::sleep(Duration::from_millis(1000));
-    dispatch.signal(Switch(1));
-    thread::sleep(Duration::from_millis(1000));
-    dispatch.signal(Switch(2));
-    thread::sleep(Duration::from_millis(1000));
-    dispatch.signal(Switch(0));
-    thread::sleep(Duration::from_millis(1000));
-    dispatch.signal(Switch(2));
-    thread::sleep(Duration::from_millis(1000));
+    // dispatch.signal(NewScreen);
+    // dispatch.signal(SetFg(Color::Cyan));
+    // dispatch.signal(Goto(5, 7));
+    // let sid = match main_input.request("screen") {
+    //     Ok(Reply::Screen(n)) => n,
+    //     _ => 0,
+    // };
+    // dispatch.signal(Printf(format!("Hello Screen #{}", sid)));
+    // thread::sleep(Duration::from_millis(1000));
+    // dispatch.signal(Switch(1));
+    // thread::sleep(Duration::from_millis(1000));
+    // dispatch.signal(Switch(2));
+    // thread::sleep(Duration::from_millis(1000));
+    // dispatch.signal(Switch(0));
+    // thread::sleep(Duration::from_millis(1000));
+    // dispatch.signal(Switch(2));
+    // thread::sleep(Duration::from_millis(1000));
 
 
-    dispatch.signal(DisableAlt);
-    dispatch.signal(DisableMouse);
-    dispatch.signal(ShowCursor);
-    dispatch.signal(Cook);
+    // dispatch.signal(DisableAlt);
+    // dispatch.signal(DisableMouse);
+    // dispatch.signal(ShowCursor);
+    // dispatch.signal(Cook);
 }

@@ -28,9 +28,11 @@ pub enum Action {
     // TODO: CursorPos
     // SCREEN/OUTPUT
     Clear(Clear),
-    Prints(String),
-    Printf(String),
+    // Prints(String),
+    // Printf(String),
+    SetContent(String, i16, i16),
     Flush,
+    Render,
     Resize(i16, i16),
     // STYLE
     SetFx(u32),
@@ -43,13 +45,13 @@ pub enum Action {
     ShowCursor,
     EnableMouse,
     DisableMouse,
-    EnableAlt,
-    DisableAlt,
+    // EnableAlt,
+    // DisableAlt,
     Raw,
     Cook,
     // INTERNAL BUFFER
     NewScreen,
-    Switch(usize),
+    SwitchTo(usize),
     Resized,
     SyncMarker(i16, i16),
     Jump,

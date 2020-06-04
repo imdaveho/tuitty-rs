@@ -220,44 +220,44 @@ impl ScreenBuffer {
         }
     }
 
-    // pub fn delch(&mut self) {
-    //     // Eg. Backspace moves cursor left 1 cell. This should have called
-    //     // something that updated the cursor to the starting cell. Therefore
-    //     // the index would be in-bounds and at a starting point.
-    //     let index = self.cursor;
-    //     match &self.cells[index] {
-    //         Some(cell) => if cell.is_part {
-    //             // Technically, impossible to hit since self.cursor()
-    //             // should always land on a normal cell (vs a partial one).
-    //             // However, in the case that somehow the index is a
-    //             // partial cell, we remove the normal cell left of it,
-    //             // and once it is deleted, the partial cell is now in
-    //             // index - 1 and ready for deletion as well.
-    //             for _ in 0..2 {
-    //                 self.cells.remove(index - 1);
-    //                 self.cells.push(None);
-    //             }
-    //             self.cursor = index - 1;
-    //         } else {
-    //             // In this case, we delete the normal cell under the cursor,
-    //             // and when the vec shifts to the left, the existing index
-    //             // will remove the partial cell that has shifted into position.
-    //             if cell.is_wide {
-    //                 for _ in 0..2 {
-    //                     self.cells.remove(index);
-    //                     self.cells.push(None);
-    //                 }
-    //             } else {
-    //                 self.cells.remove(index);
-    //                 self.cells.push(None);
-    //             }
-    //         },
-    //         None => {
-    //             self.cells.remove(index);
-    //             self.cells.push(None);
-    //         }
-    //     };
-    // }
+    pub fn delch(&mut self) {
+        // Eg. Backspace moves cursor left 1 cell. This should have called
+        // something that updated the cursor to the starting cell. Therefore
+        // the index would be in-bounds and at a starting point.
+        let index = self.cursor;
+        match &self.cells[index] {
+            Some(cell) => if cell.is_part {
+                // Technically, impossible to hit since self.cursor()
+                // should always land on a normal cell (vs a partial one).
+                // However, in the case that somehow the index is a
+                // partial cell, we remove the normal cell left of it,
+                // and once it is deleted, the partial cell is now in
+                // index - 1 and ready for deletion as well.
+                for _ in 0..2 {
+                    self.cells.remove(index - 1);
+                    self.cells.push(None);
+                }
+                self.cursor = index - 1;
+            } else {
+                // In this case, we delete the normal cell under the cursor,
+                // and when the vec shifts to the left, the existing index
+                // will remove the partial cell that has shifted into position.
+                if cell.is_wide {
+                    for _ in 0..2 {
+                        self.cells.remove(index);
+                        self.cells.push(None);
+                    }
+                } else {
+                    self.cells.remove(index);
+                    self.cells.push(None);
+                }
+            },
+            None => {
+                self.cells.remove(index);
+                self.cells.push(None);
+            }
+        };
+    }
 
     pub fn sync_style(&mut self, style: Style) {
         match style {
