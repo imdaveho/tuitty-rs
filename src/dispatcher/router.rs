@@ -75,6 +75,7 @@ pub fn handle_action(
         },
         
         Prints(s) => {
+            term.prints(&s)?;
             store.sync_content(&s);
             Ok(())
         },

@@ -15,12 +15,13 @@ use message::{
     Msg::{*, self}, Query::*, Reply,
 };
 use crate::tuitty_core::terminal::Term;
-use crate::tuitty_core::common::enums::InputEvent;
 
 #[cfg(unix)]
 use crate::tuitty_core::parser::unix;
+#[cfg(unix)]
+use crate::tuitty_core::common::enums::InputEvent;
 #[cfg(windows)]
-use crate::tuitty::parser::windows;
+use crate::tuitty_core::parser::windows;
 
 pub mod message;
 
@@ -76,14 +77,9 @@ impl EventHandle {
         match query {
             "coord" => {
                 self.signal_tx.send(Request(Coord(self.id)))?;
-                let mut iter = self.event_rx.iter();
-                loop {
-                    if let Some(Msg::Response(r)) = iter.next() {
-                        return Ok(r)
-                    }
-                }
             },
-            "pos" => {
+            #[cfg(unix)]
+            "raw_pos" => {
                 // Determine if the current screen is in raw mode.
                 self.signal_tx.send(Request(_IsRaw(self.id)))?;
                 let mut iter = self.event_rx.iter();
@@ -100,7 +96,6 @@ impl EventHandle {
                 if !is_raw { self.signal_tx.send(Signal(Action::Raw))? }
                 // Request the cursor position and 
                 self.signal_tx.send(Request(Pos(self.id)))?;
-                let mut iter = self.event_rx.iter();
                 loop {
                     if let Some(Msg::Received(iv)) = iter.next() {
                         if let InputEvent::CursorPos(col, row) = iv {
@@ -113,34 +108,26 @@ impl EventHandle {
                     }
                 }
             },
+            #[cfg(windows)]
+            "raw_pos" => {
+                self.signal_tx.send(Request(Pos(self.id)))?;
+            },
             "getch" => {
                 self.signal_tx.send(Request(GetCh(self.id)))?;
-                let mut iter = self.event_rx.iter();
-                loop {
-                    if let Some(Msg::Response(r)) = iter.next() {
-                        return Ok(r)
-                    }
-                }
             },
             "size" => {
                 self.signal_tx.send(Request(Size(self.id)))?;
-                let mut iter = self.event_rx.iter();
-                loop {
-                    if let Some(Msg::Response(r)) = iter.next() {
-                        return Ok(r)
-                    }
-                }
             },
             "screen" => {
                 self.signal_tx.send(Request(Screen(self.id)))?;
-                let mut iter = self.event_rx.iter();
-                loop {
-                    if let Some(Msg::Response(r)) = iter.next() {
-                        return Ok(r)
-                    }
-                }
             },
-            _ => Ok(Reply::Empty)
+            _ => return Ok(Reply::Empty)
+        }
+        let mut iter = self.event_rx.iter();
+        loop {
+            if let Some(Msg::Response(r)) = iter.next() {
+                return Ok(r)
+            }
         }
     }
 }
@@ -227,7 +214,11 @@ impl Dispatcher {
                                 Ok(r) => r,
                                 Err(_) => match emitters_ref.lock() {
                                     Ok(r) => r,
-                                    Err(_) => continue
+                                    Err(_) => {
+                                        is_running_ref.store(false, 
+                                            Ordering::SeqCst);
+                                        break
+                                    }
                                 },
                             };
                             roster.entry(id)
@@ -241,7 +232,11 @@ impl Dispatcher {
                                 Ok(r) => r,
                                 Err(_) => match emitters_ref.lock() {
                                     Ok(r) => r,
-                                    Err(_) => continue
+                                    Err(_) => {
+                                        is_running_ref.store(false, 
+                                            Ordering::SeqCst);
+                                        break
+                                    }
                                 },
                             };
                             roster.entry(id)
@@ -255,7 +250,11 @@ impl Dispatcher {
                                 Ok(r) => r,
                                 Err(_) => match emitters_ref.lock() {
                                     Ok(r) => r,
-                                    Err(_) => continue
+                                    Err(_) => {
+                                        is_running_ref.store(false, 
+                                            Ordering::SeqCst);
+                                        break
+                                    }
                                 },
                             };
                             roster.entry(id)
@@ -268,7 +267,11 @@ impl Dispatcher {
                             match lock_owner_ref.load(Ordering::SeqCst) {
                                 0 => lock_owner_ref
                                     .store(id, Ordering::SeqCst),
-                                _ => continue,
+                                _ => {
+                                    is_running_ref.store(false, 
+                                        Ordering::SeqCst);
+                                    break
+                                },
                             }
                         },
 
@@ -283,7 +286,11 @@ impl Dispatcher {
                         Signal(action) => {
                             match handle_action(action, &mut term, &mut store) {
                                 Ok(_) => (),
-                                Err(e) => {}
+                                Err(_) => {
+                                    is_running_ref.store(false, 
+                                        Ordering::SeqCst);
+                                    break
+                                }
                             }
                         },
 
@@ -293,7 +300,11 @@ impl Dispatcher {
                                     Ok(r) => r,
                                     Err(_) => match emitters_ref.lock() {
                                         Ok(r) => r,
-                                        Err(_) => continue
+                                        Err(_) => {
+                                            is_running_ref.store(false, 
+                                                Ordering::SeqCst);
+                                            break
+                                        }
                                     },
                                 };
                                 if let Some(tx) = roster.get(&id) {
@@ -308,7 +319,11 @@ impl Dispatcher {
                                     Ok(r) => r,
                                     Err(_) => match emitters_ref.lock() {
                                         Ok(r) => r,
-                                        Err(_) => continue
+                                        Err(_) => {
+                                            is_running_ref.store(false, 
+                                                Ordering::SeqCst);
+                                            break
+                                        }
                                     },
                                 };
                                 if let Some(tx) = roster.get(&id) {
@@ -351,11 +366,22 @@ impl Dispatcher {
                                     Ok(r) => r,
                                     Err(_) => match emitters_ref.lock() {
                                         Ok(r) => r,
-                                        Err(_) => continue
+                                        Err(_) => {
+                                            is_running_ref.store(false, 
+                                                Ordering::SeqCst);
+                                            break
+                                        }
                                     },
                                 };
                                 if let Some(tx) = roster.get(&id) {
-                                    let (col, row) = term.pos();
+                                    let (col, row) = match term.pos() {
+                                        Ok(c) => (c.0, c.1),
+                                        Err(_) => {
+                                            is_running_ref.store(false,        
+                                                Ordering::SeqCst);
+                                            break
+                                        }
+                                    };
                                     let _ = tx.event_tx.send(Response(
                                         Reply::Pos(col, row)));
                                 }
@@ -366,7 +392,11 @@ impl Dispatcher {
                                     Ok(r) => r,
                                     Err(_) => match emitters_ref.lock() {
                                         Ok(r) => r,
-                                        Err(_) => continue
+                                        Err(_) => {
+                                            is_running_ref.store(false,        
+                                                Ordering::SeqCst);
+                                            break
+                                        }
                                     },
                                 };
                                 if let Some(tx) = roster.get(&id) {
@@ -381,7 +411,11 @@ impl Dispatcher {
                                     Ok(r) => r,
                                     Err(_) => match emitters_ref.lock() {
                                         Ok(r) => r,
-                                        Err(_) => continue
+                                        Err(_) => {
+                                            is_running_ref.store(false,        
+                                                Ordering::SeqCst);
+                                            break
+                                        }
                                     },
                                 };
                                 if let Some(tx) = roster.get(&id) {
@@ -397,7 +431,11 @@ impl Dispatcher {
                                     Ok(r) => r,
                                     Err(_) => match emitters_ref.lock() {
                                         Ok(r) => r,
-                                        Err(_) => continue
+                                        Err(_) => {
+                                            is_running_ref.store(false,        
+                                                Ordering::SeqCst);
+                                            break
+                                        }
                                     },
                                 };
                                 if let Some(tx) = roster.get(&id) {

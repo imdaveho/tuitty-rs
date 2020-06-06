@@ -8,7 +8,7 @@ use crate::tuitty_core::common::enums::Effect;
 #[cfg(windows)]
 use crate::tuitty_core::common::enums::{Effect, foreground, background, effects};
 #[cfg(windows)]
-use winapi::shared::minwindef::WORD;
+type WORD = u16;
 
 
 #[derive(Clone)]
@@ -18,17 +18,6 @@ pub struct Cell {
     is_part: bool,
     style: (Color, Color, u32),
 }
-
-// impl Cell {
-//     pub fn new(style: (Color, Color, u32)) -> Cell {
-//         Cell {
-//             glyph: vec![' '],
-//             is_part: false,
-//             is_wide: false,
-//             style
-//         }
-//     }
-// }
 
 
 pub struct ScreenBuffer {
@@ -501,7 +490,12 @@ impl ScreenBuffer {
         // the winconsole api, and improve rendering speed for each "frame"
         let mut words: Vec<(WORD, i32, i32)> = vec![];
         for cell in &self.cells {
-            let spc = Cell::new(style);
+            let spc = Cell {
+                glyph: vec![' '],
+                is_part: false,
+                is_wide: false,
+                style
+            };
             let data = match cell { Some(c) => c, None => &spc };
             for ch in &data.glyph { chunk.push(*ch) }
             if data.is_part { index += 1; continue }

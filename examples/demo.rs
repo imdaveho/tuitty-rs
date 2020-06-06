@@ -11,13 +11,10 @@ use std::sync::{Arc, atomic::{AtomicBool, Ordering}};
 
 fn main() {
     let mut dispatch = Dispatcher::init();
-    // dispatch.signal(Printf("Hello, World".to_string()));
-    // thread::sleep(Duration::from_millis(1000));
 
     let main_input = dispatch.listen();
     let background = dispatch.spawn();
 
-    // dispatch.signal(EnableAlt);
     dispatch.signal(NewScreen);
     dispatch.signal(Raw);
     dispatch.signal(HideCursor);
@@ -46,24 +43,20 @@ fn main() {
                 },
                 _ => (),
             }
-            // let (x, y) = match background.request("coord") {
-            //     Ok(Reply::Coord(col, row)) => (col, row),
-            //     _ => (0, 0)
-            // };
-            let (x, y) = match background.request("pos") {
+            let (x, y) = match background.request("raw_pos") {
                 Ok(Reply::Pos(col, row)) => (col, row),
                 _ => (0, 0)
             };
-            // background.signal(Prints(s));
-            // background.signal(Goto(12, 14));
-            // background.signal(Prints(
-                // format!("col: {}, row: {}", x, y)));
+
             background.signal(SetContent(s, x, y));
+            // background.signal(Goto(x, y));
+            // background.signal(Prints(s));
             let p = format!("col: {}, row: {}", x, y);
+            // background.signal(Goto(12, 14));
+            // background.signal(Prints(p));
             background.signal(SetContent(p, 12, 14));
             background.signal(Clear(ClearKind::NewLn));
-            thread::sleep(Duration::from_millis(100));
-            // background.signal(Flush);
+            thread::sleep(Duration::from_millis(10));
         }
     });
 
@@ -115,15 +108,14 @@ fn main() {
             };
 
         if &event != "" {
+            // main_input.signal(SetFg(Color::Red));
+            main_input.signal(SetContent(event, 0, 0));
+            // main_input.signal(ResetStyles);
             // main_input.signal(Goto(0, 0));
             // main_input.signal(Prints(event));
-            main_input.signal(SetFg(Color::Red));
-            main_input.signal(SetContent(event, 0, 0));
-            main_input.signal(ResetStyles);
             main_input.signal(Clear(ClearKind::NewLn));
         }
-        thread::sleep(Duration::from_millis(10));
-        // main_input.signal(Flush);
+        thread::sleep(Duration::from_millis(16));
         main_input.signal(Render);
     }
 
@@ -132,7 +124,6 @@ fn main() {
     dispatch.signal(DisableMouse);
     dispatch.signal(ShowCursor);
     dispatch.signal(Cook);
-    // dispatch.signal(DisableAlt);
     dispatch.signal(SwitchTo(0));
 
     // thread::sleep(Duration::from_millis(1000));
