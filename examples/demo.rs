@@ -1,5 +1,5 @@
-use tuitty_rs::dispatcher::Dispatcher;
-use tuitty_rs::dispatcher::message::{*, Action::*};
+use tuitty_rs::dispatch::Dispatcher;
+use tuitty_rs::dispatch::enums::{*, Action::*};
 use std::thread;
 use std::time::Duration;
 use tuitty_core::common::enums::{
@@ -55,8 +55,9 @@ fn main() {
             // background.signal(Goto(12, 14));
             // background.signal(Prints(p));
             background.signal(SetContent(p, 12, 14));
+            background.signal(Render);
             background.signal(Clear(ClearKind::NewLn));
-            thread::sleep(Duration::from_millis(10));
+            thread::sleep(Duration::from_millis(400));
         }
     });
 
@@ -108,15 +109,15 @@ fn main() {
             };
 
         if &event != "" {
-            // main_input.signal(SetFg(Color::Red));
+            main_input.signal(SetFg(Color::Red));
             main_input.signal(SetContent(event, 0, 0));
-            // main_input.signal(ResetStyles);
+            main_input.signal(ResetStyles);
             // main_input.signal(Goto(0, 0));
             // main_input.signal(Prints(event));
             main_input.signal(Clear(ClearKind::NewLn));
+            main_input.signal(Render);
         }
-        thread::sleep(Duration::from_millis(16));
-        main_input.signal(Render);
+        thread::sleep(Duration::from_millis(10));
     }
 
     let _ = cycle_th.join();

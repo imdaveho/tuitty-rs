@@ -6,7 +6,7 @@ use crate::tuitty_core::terminal::Term;
 use crate::tuitty_core::common::enums::{ Clear, Color, Style };
 
 
-struct Screen {
+struct ScreenData {
     // Screen mode settings
     is_raw_enabled: bool,
     is_mouse_enabled: bool,
@@ -15,9 +15,9 @@ struct Screen {
     buffer: ScreenBuffer,
 }
 
-impl Screen {
-    pub fn new(w: i16, h: i16) -> Screen {
-        Screen {
+impl ScreenData {
+    pub fn new(w: i16, h: i16) -> Self {
+        Self {
             is_raw_enabled: false,
             is_mouse_enabled: false,
             is_cursor_visible: true,
@@ -27,14 +27,14 @@ impl Screen {
 }
 
 
-pub struct Store {
+pub struct ScreenStore {
     id: usize,
-    data: Vec<Screen>,
+    data: Vec<ScreenData>,
 }
 
-impl Store {
-    pub fn new(w: i16, h: i16) -> Store {
-        Store { id: 0, data: vec![Screen::new(w, h)] }
+impl ScreenStore {
+    pub fn new(w: i16, h: i16) -> Self {
+        Self { id: 0, data: vec![ScreenData::new(w, h)] }
     }
 
     pub fn id(&self) -> usize {
@@ -56,7 +56,7 @@ impl Store {
     }
 
     pub fn new_screen(&mut self, w: i16, h: i16) {
-        self.data.push(Screen::new(w, h));
+        self.data.push(ScreenData::new(w, h));
         self.id = self.data.len() - 1;
     }
 
@@ -172,7 +172,7 @@ impl Store {
         self.data[self.id].buffer.sync_clear(clr);
     }
 
-    pub fn render(&self, term: &Term) -> Result<()> {
+    pub fn render(&mut self, term: &Term) -> Result<()> {
         self.data[self.id].buffer.render(term)
     }
 }

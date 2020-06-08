@@ -3,12 +3,11 @@
 use crate::tuitty_core::common::unicode::{grapheme::*, wcwidth::*};
 use super::{ Term, Color::{*, self}, Style, Clear };
 
-#[cfg(unix)]
 use crate::tuitty_core::common::enums::Effect;
 #[cfg(windows)]
-use crate::tuitty_core::common::enums::{Effect, foreground, background, effects};
+use crate::tuitty_core::system::wincon::style::{into_fg, into_bg, into_fx};
 #[cfg(windows)]
-type WORD = u16;
+use crate::tuitty_core::system::wincon::output::{ CHAR_INFO, COORD, SMALL_RECT };
 
 
 #[derive(Clone)]
@@ -23,7 +22,11 @@ pub struct Cell {
 pub struct ScreenBuffer {
     cursor: usize,
     marker: usize,
-    cells: Vec<Option<Cell>>,
+    inner_buf: Vec<Option<Cell>>,
+    #[cfg(unix)]
+    front_buf: Vec<Option<Cell>>,
+    #[cfg(windows)]
+    front_buf: Vec<CHAR_INFO>,
     capacity: usize,
     window: (i16, i16),
     tab_size: usize,
@@ -34,10 +37,23 @@ pub struct ScreenBuffer {
 impl ScreenBuffer {
     pub fn new(w: i16, h: i16) -> Self {
         let capacity = (w * h) as usize;
+        let inner_buf = vec![None; capacity];
+        #[cfg(unix)]
+        let front_buf = vec![None; capacity];
+        #[cfg(windows)]
+        let front_buf: Vec<CHAR_INFO> = vec![
+            unsafe {std::mem::zeroed()};capacity]
+            .iter_mut().map(|x: &mut CHAR_INFO| {
+                unsafe { *x.Char.UnicodeChar_mut() = 32 };
+                x.Attributes = 7;
+                return *x
+            }).collect();
+            
         Self {
             cursor: 0,
             marker: 0,
-            cells: vec![None; capacity],
+            inner_buf,
+            front_buf,
             capacity,
             window: (w, h),
             tab_size: 8,
@@ -50,7 +66,7 @@ impl ScreenBuffer {
     fn cursor(&mut self) -> usize {
         let mut index = self.cursor;
         // Start at the origin cell.
-        match self.cells.get(index) {
+        match self.inner_buf.get(index) {
             Some(Some(cell)) => if cell.is_part {
                 // With only 2-cell wide chars,
                 // if is_part is true, we shift left
@@ -61,25 +77,25 @@ impl ScreenBuffer {
             Some(None) => (),
             None => {
                 // Out-of-Bounds
-                let length = self.cells.len();
+                let length = self.inner_buf.len();
                 // Scenario A: cell buffer length < capacity:
                 if length < self.capacity {
                     // Pop from extra back into cells to get
                     // back to len == capacity.
                     let cycles = self.capacity - length;
-                    for _ in 0..cycles { self.cells.push(None); }
+                    for _ in 0..cycles { self.inner_buf.push(None); }
                 }
                 // Scenario B: cell buffer length > capacity:
                 else if length > self.capacity {
                     // Pop from cells into extra to get back
                     // to len == capacity.
                     let cycles = length - self.capacity;
-                    for _ in 0..cycles { self.cells.pop(); }
+                    for _ in 0..cycles { self.inner_buf.pop(); }
                 }
                 // No issues with buffer; cursor index just out of bounds.
                 // Set cursor to last Cell in buffer:
                 index = self.capacity - 1;
-                if let Some(cell) = &self.cells[index] {
+                if let Some(cell) = &self.inner_buf[index] {
                     if cell.is_part { index -= 1; }
                 }
                 self.cursor = index;
@@ -122,7 +138,7 @@ impl ScreenBuffer {
     pub fn sync_right(&mut self, n: i16) {
         let mut n = n;
         if n < 0 { n = n.abs() }
-        if let Some(cell) = &self.cells[self.cursor] {
+        if let Some(cell) = &self.inner_buf[self.cursor] {
             if cell.is_wide { n += 1 }
         }
         let (mut col, row) = self.coord();
@@ -189,7 +205,7 @@ impl ScreenBuffer {
     pub fn sync_size(&mut self, w: i16, h: i16) {
         self.window = (w, h);
         self.capacity = (w * h) as usize;
-        self.cells.resize(self.capacity, None);
+        self.inner_buf.resize(self.capacity, None);
     }
 
     // pub fn sync_window(&mut self, w: i16, h: i16) {
@@ -198,9 +214,9 @@ impl ScreenBuffer {
 
     pub fn getch(&self) -> String {
         let index = self.cursor;
-        match &self.cells[index] {
+        match &self.inner_buf[index] {
             Some(cell) => if cell.is_part {
-                match &self.cells[index - 1] {
+                match &self.inner_buf[index - 1] {
                     Some(cell) => cell.glyph.iter().collect(),
                     None => " ".to_string(),
                 }
@@ -214,7 +230,7 @@ impl ScreenBuffer {
         // something that updated the cursor to the starting cell. Therefore
         // the index would be in-bounds and at a starting point.
         let index = self.cursor;
-        match &self.cells[index] {
+        match &self.inner_buf[index] {
             Some(cell) => if cell.is_part {
                 // Technically, impossible to hit since self.cursor()
                 // should always land on a normal cell (vs a partial one).
@@ -223,8 +239,8 @@ impl ScreenBuffer {
                 // and once it is deleted, the partial cell is now in
                 // index - 1 and ready for deletion as well.
                 for _ in 0..2 {
-                    self.cells.remove(index - 1);
-                    self.cells.push(None);
+                    self.inner_buf.remove(index - 1);
+                    self.inner_buf.push(None);
                 }
                 self.cursor = index - 1;
             } else {
@@ -233,17 +249,17 @@ impl ScreenBuffer {
                 // will remove the partial cell that has shifted into position.
                 if cell.is_wide {
                     for _ in 0..2 {
-                        self.cells.remove(index);
-                        self.cells.push(None);
+                        self.inner_buf.remove(index);
+                        self.inner_buf.push(None);
                     }
                 } else {
-                    self.cells.remove(index);
-                    self.cells.push(None);
+                    self.inner_buf.remove(index);
+                    self.inner_buf.push(None);
                 }
             },
             None => {
-                self.cells.remove(index);
-                self.cells.push(None);
+                self.inner_buf.remove(index);
+                self.inner_buf.push(None);
             }
         };
     }
@@ -264,15 +280,15 @@ impl ScreenBuffer {
         let mut index = self.cursor;
         if index >= self.capacity { index = self.capacity - 1 }
         if is_wide {
-            self.cells.remove(index);
-            self.cells.insert(index, Some(Cell {
+            self.inner_buf.remove(index);
+            self.inner_buf.insert(index, Some(Cell {
                 glyph: ch,
                 is_wide: true,
                 is_part: false,
                 style: self.active_style,
             }));
-            self.cells.remove(index + 1);
-            self.cells.insert(index + 1, Some(Cell {
+            self.inner_buf.remove(index + 1);
+            self.inner_buf.insert(index + 1, Some(Cell {
                 glyph: vec![],
                 is_wide: true,
                 is_part: true,
@@ -283,11 +299,11 @@ impl ScreenBuffer {
             let mut from_wide = false;
             // If cell below is wide and new cell is single,
             // we would need to clear out the partial cell.
-            if let Some(cell) = &self.cells[index] {
+            if let Some(cell) = &self.inner_buf[index] {
                 if cell.is_wide { from_wide = true }
             }
-            self.cells.remove(index);
-            self.cells.insert(index, Some(Cell {
+            self.inner_buf.remove(index);
+            self.inner_buf.insert(index, Some(Cell {
                 glyph: ch,
                 is_wide: false,
                 is_part: false,
@@ -295,8 +311,8 @@ impl ScreenBuffer {
             }));
             self.cursor = index + 1;
             if from_wide {
-                self.cells.remove(index + 1);
-                self.cells.insert(index + 1, None);
+                self.inner_buf.remove(index + 1);
+                self.inner_buf.insert(index + 1, None);
                 // Keep the spacing from 2 cells occupied to
                 // the first cell updated and the second cell blank.
                 self.cursor = index + 2;
@@ -375,7 +391,7 @@ impl ScreenBuffer {
     pub fn sync_clear(&mut self, clr: Clear) {
         match clr {
             Clear::All => {
-                self.cells = vec![None; self.capacity];
+                self.inner_buf = vec![None; self.capacity];
                 self.cursor = 0;
             }
             Clear::NewLn => {
@@ -383,27 +399,27 @@ impl ScreenBuffer {
                 let (start, stop) = (
                     ((row * w) + col) as usize,
                     ((row + 1) * w) as usize );
-                for i in start..stop { self.cells[i] = None }
+                for i in start..stop { self.inner_buf[i] = None }
             }
             Clear::CurrentLn => {
                 let (w, (_, row)) = (self.width(), self.coord());
                 let (start, stop) = (
                     (row * w) as usize,
                     ((row + 1) * w) as usize );
-                for i in start..stop { self.cells[i] = None }
+                for i in start..stop { self.inner_buf[i] = None }
                 self.sync_coord(0, row);
             }
             Clear::CursorUp => {
                 let (w, (col, row)) = (self.width(), self.coord());
                 let stop = ((row * w) + col) as usize;
-                for i in 0..stop { self.cells[i] = None }
+                for i in 0..stop { self.inner_buf[i] = None }
             }
             Clear::CursorDn => {
                 let ((w, h), (col, row)) = (self.size(), self.coord());
                 let (start, stop) = (
                     ((row * w) + col) as usize,
                     (w * h) as usize );
-                for i in start..stop { self.cells[i] = None }
+                for i in start..stop { self.inner_buf[i] = None }
             }
         }
     }
@@ -416,7 +432,7 @@ impl ScreenBuffer {
         let default = (Reset, Reset, Effect::Reset as u32);
         let mut style = (Reset, Reset, Effect::Reset as u32);
         let mut chunk = String::with_capacity(self.capacity);
-        for cell in &self.cells { match cell {
+        for cell in &self.inner_buf { match cell {
             Some(c) => {
                 if c.is_part { continue }
                 // Complete reset.
@@ -471,112 +487,188 @@ impl ScreenBuffer {
     }
 
     #[cfg(windows)]
-    pub fn render(&self, term: &Term) -> std::io::Result<()> {
-        let default = (Reset, Reset, Effect::Reset as u32);
-        let mut style = (Reset, Reset, Effect::Reset as u32);
-
+    pub fn render(&mut self, term: &Term) -> std::io::Result<()> {
         let (col, row) = self.coord();
         term.goto(0, 0)?;
-        let reset = term.init_data().1;
-
-        let mut change_index = 0;
-        let mut index = 0;
-        let mut current: WORD = reset as WORD;
-        // On Windows, we create the entire string to be printed at the end.
-        let mut chunk = String::with_capacity(self.capacity);
-        // For styles, we keep track of the new styles and their starting and
-        // and finishing indices, so that we can apply them _after_ printing
-        // all the characters out. This reduces the amount of calls needed to
-        // the winconsole api, and improve rendering speed for each "frame"
-        let mut words: Vec<(WORD, i32, i32)> = vec![];
-        for cell in &self.cells {
-            let spc = Cell {
-                glyph: vec![' '],
-                is_part: false,
-                is_wide: false,
-                style
-            };
-            let data = match cell { Some(c) => c, None => &spc };
-            for ch in &data.glyph { chunk.push(*ch) }
-            if data.is_part { index += 1; continue }
-            
-            // Completely reset style back to default.
-            if style != data.style && data.style == default {
-                // Append previous style if it isn't the default.
-                if current != reset {
-                    words.push((current, change_index, index - 1));
-                }
-                // Reset the current attr.
-                current = reset as WORD;
-                // Update the last change to the current index.
-                change_index = index;
-                // Reset the conditional.
-                style = default;
-            }
-            // Some styles are different.
-            else if style != data.style {
-                // Different Fg.
-                if style.0 != data.style.0 {
-                    if current != reset {
-                        words.push((current, change_index, index - 1));
-                    }
-                    current = foreground(style.0, current, reset) as WORD;
-                    change_index = index;
-                    style.0 = data.style.0;
-                }
-                // Different Bg.
-                if style.1 != data.style.1 {
-                    if current != reset {
-                        words.push((current, change_index, index - 1));
-                    }
-                    current = background(style.1, current, reset) as WORD;
-                    change_index = index;
-                    style.1 = data.style.1;
-                }
-                // Different Fx.
-                if style.2 != data.style.2 {
-                    if current != reset {
-                        words.push((current, change_index, index - 1));
-                    }
-                    current = effects(style.2, current) as WORD;
-                    change_index = index;
-                    style.2 = data.style.2;
-                }
-            }
-            // Current style remains. Do nothing.
-            else { () }
-            index += 1;    
+        let spc = Cell {
+            glyph: vec![' '],
+            is_part: false,
+            is_wide: false,
+            style: (Reset, Reset, Effect::Reset as u32)
         };
-        // Windows Console creates a new line after printing
-        // the last character in the buffer. To prevent this,
-        // we offset the max buffer capacity by -1.
-        chunk.pop(); 
-        if chunk.len() > 0 { term.prints(&chunk)? }
-        // Styles are appended based on the _previous_ style. Append
-        // the last remaining style to the list.
-        if current != reset {
-            words.push((current, change_index, index - 1));
-        }
+        let reset = term.init_data().1;
+        let mut index = 0;
+        for oc in &self.inner_buf {
+            // let char_info = self.front_buf[index];
+            // let ch = unsafe { *char_info.Char.UnicodeChar() };
+            // let attr = char_info.Attributes;
+            // let cell = match oc {
+            //     Some(c) => c,
+            //     None => &spc
+            // };
+            // let cell_style = {
+            //     let fg = into_fg(cell.style.0, reset, reset);
+            //     let bg = into_bg(cell.style.1, fg, reset);
+            //     into_fx(cell.style.2, bg)
+            // };
+            // let ch_diff = (cell.glyph[0] as u16) == ch;
+            // let attr_diff = cell_style == attr;
 
-        for set in words {
-            let (word, start, finish) = set;
-            let length = (finish - start) as u32;
-            let coord = (
-                finish as i16 % self.width(),
-                finish as i16 / self.width()
-            );            
-            term.set_attrib(word, length, coord)?;
+            // if ch_diff { unsafe {
+            //     *self.front_buf[index]
+            //         .Char.UnicodeChar_mut() = cell.glyph[0] as u16
+            // }}
+            // if attr_diff { self.front_buf[index].Attributes = cell_style }
+
+            // if cell.is_wide {
+            //     index += 1;
+            //     let char_info = self.front_buf[index];
+            //     let ch = unsafe { *char_info.Char.UnicodeChar() };
+            //     let attr = char_info.Attributes;
+            //     let ch_diff = (cell.glyph[1] as u16) == ch;
+            //     let attr_diff = cell_style == attr;
+            //     if ch_diff { unsafe {
+            //         *self.front_buf[index]
+            //             .Char.UnicodeChar_mut() = cell.glyph[1] as u16
+            //     }}
+            //     if attr_diff { self.front_buf[index].Attributes = cell_style }
+            // }
+            // index +=1;
+            match oc {
+                Some(c) => {
+                    let style = into_fx(
+                        c.style.2, 
+                        into_bg(c.style.1, 
+                            into_fg(c.style.0, reset, reset),
+                        reset));
+                    for ch in &c.glyph {
+                        unsafe {
+                            *self.front_buf[index]
+                                .Char.UnicodeChar_mut() = *ch as u16;
+                        }
+                        self.front_buf[index].Attributes = style;
+                        index += 1
+                    }
+                },
+                None => index +=1,
+            };
         }
+        let (w, h) = self.size();
+        let coord = COORD {X: 0, Y: 0};
+        let size = COORD {X: w, Y: h};
+        let mut dest = SMALL_RECT {Top: 0, Left: 0, Bottom: h, Right: w};
+        term.writebuf(self.front_buf.as_ptr(), size, coord, &mut dest)?;
         term.goto(col, row)?;
         Ok(())
     }
+
+    // #[cfg(windows)]
+    // pub fn render(&self, term: &Term) -> std::io::Result<()> {
+    //     let default = (Reset, Reset, Effect::Reset as u32);
+    //     let mut style = (Reset, Reset, Effect::Reset as u32);
+
+    //     let (col, row) = self.coord();
+    //     term.goto(0, 0)?;
+    //     let reset = term.init_data().1;
+
+    //     let mut change_index = 0;
+    //     let mut index = 0;
+    //     let mut current = reset;
+    //     // On Windows, we create the entire string to be printed at the end.
+    //     let mut chunk = String::with_capacity(self.capacity);
+    //     // For styles, we keep track of the new styles and their starting and
+    //     // and finishing indices, so that we can apply them _after_ printing
+    //     // all the characters out. This reduces the amount of calls needed to
+    //     // the winconsole api, and improve rendering speed for each "frame"
+    //     let mut words: Vec<(u16, i32, i32)> = vec![];
+    //     for cell in &self.inner_buf {
+    //         let spc = Cell {
+    //             glyph: vec![' '],
+    //             is_part: false,
+    //             is_wide: false,
+    //             style
+    //         };
+    //         let data = match cell { Some(c) => c, None => &spc };
+    //         for ch in &data.glyph { chunk.push(*ch) }
+    //         if data.is_part { index += 1; continue }
+            
+    //         // Completely reset style back to default.
+    //         if style != data.style && data.style == default {
+    //             // Append previous style if it isn't the default.
+    //             if current != reset {
+    //                 words.push((current, change_index, index - 1));
+    //             }
+    //             // Reset the current attr.
+    //             current = reset;
+    //             // Update the last change to the current index.
+    //             change_index = index;
+    //             // Reset the conditional.
+    //             style = default;
+    //         }
+    //         // Some styles are different.
+    //         else if style != data.style {
+    //             // Different Fg.
+    //             if style.0 != data.style.0 {
+    //                 if current != reset {
+    //                     words.push((current, change_index, index - 1));
+    //                 }
+    //                 current = foreground(style.0, current, reset);
+    //                 change_index = index;
+    //                 style.0 = data.style.0;
+    //             }
+    //             // Different Bg.
+    //             if style.1 != data.style.1 {
+    //                 if current != reset {
+    //                     words.push((current, change_index, index - 1));
+    //                 }
+    //                 current = background(style.1, current, reset);
+    //                 change_index = index;
+    //                 style.1 = data.style.1;
+    //             }
+    //             // Different Fx.
+    //             if style.2 != data.style.2 {
+    //                 if current != reset {
+    //                     words.push((current, change_index, index - 1));
+    //                 }
+    //                 current = effects(style.2, current);
+    //                 change_index = index;
+    //                 style.2 = data.style.2;
+    //             }
+    //         }
+    //         // Current style remains. Do nothing.
+    //         else { () }
+    //         index += 1;    
+    //     };
+    //     // Windows Console creates a new line after printing
+    //     // the last character in the buffer. To prevent this,
+    //     // we offset the max buffer capacity by -1.
+    //     chunk.pop(); 
+    //     if chunk.len() > 0 { term.prints(&chunk)? }
+    //     // Styles are appended based on the _previous_ style. Append
+    //     // the last remaining style to the list.
+    //     if current != reset {
+    //         words.push((current, change_index, index - 1));
+    //     }
+
+    //     for set in words {
+    //         let (word, start, finish) = set;
+    //         let length = (finish - start) as u32;
+    //         let coord = (
+    //             finish as i16 % self.width(),
+    //             finish as i16 / self.width()
+    //         );            
+    //         term.set_attrib(word, length, coord)?;
+    //     }
+    //     term.goto(col, row)?;
+    //     Ok(())
+    // }
 
 
     #[cfg(test)]
     fn check_contents(&self) -> String {
         let mut chars: Vec<char> = Vec::with_capacity(self.capacity);
         let mut length = 0;
-        for c in self.cells.iter() {
+        for c in self.inner_buf.iter() {
             match c {
                 Some(cell) => {
                     if cell.is_part { continue }
@@ -617,7 +709,7 @@ mod tests {
 
         // Insert wide char:
         buffer.sync_content("a㓘z");
-        assert_eq!(buffer.cells.len(), 10);
+        assert_eq!(buffer.inner_buf.len(), 10);
         let output = buffer.check_contents();
         assert_eq!(output, format!("a㓘z{}", " ".repeat(6)));
         assert_eq!(output.width(), 10);
@@ -639,7 +731,7 @@ mod tests {
         // Insert \n char:
         // NOTE: Difference between Unix and Windows \n handling.
         buffer.sync_content("a\n㓘z");
-        assert_eq!(buffer.cells.len(), 10);
+        assert_eq!(buffer.inner_buf.len(), 10);
         let output = buffer.check_contents();
         #[cfg(unix)]
         assert_eq!(output, format!(
@@ -718,7 +810,7 @@ mod tests {
         // NOTE: when tab_size = 4;
         buffer.tab_size = 4;
         buffer.sync_content("a\t㓘\tzebra\t\t\t&");
-        assert_eq!(buffer.cells.len(), 30);
+        assert_eq!(buffer.inner_buf.len(), 30);
         let output = buffer.check_contents();
         assert_eq!(output, format!(
             "a{tab1}㓘{tab2}zebra{tab3}&{rest}",
@@ -733,7 +825,7 @@ mod tests {
         buffer.tab_size = 8;
         buffer.sync_clear(Clear::All);
         buffer.sync_content("a\t㓘\tzebra\t\t\t&");
-        assert_eq!(buffer.cells.len(), 30);
+        assert_eq!(buffer.inner_buf.len(), 30);
         let output = buffer.check_contents();
         assert_eq!(output, format!(
             "a{tab1}㓘{tab2}zebra{tab3}&{rest}",
@@ -903,16 +995,16 @@ mod tests {
 
         // Insert wide char:
         buffer.sync_content("a⚠️ 👨‍👩‍👧 ❤️z");
-        assert_eq!(buffer.cells.len(), 10);
+        assert_eq!(buffer.inner_buf.len(), 10);
         let output = buffer.check_contents();
         assert_eq!(output, format!("a⚠️ 🚧 ❤️z{}", " ".repeat(0)));
         // \u{fe0f} characters are 1 cell wide...
         assert_eq!(output.width(), 8);
         // But we made it so that the character is 2 cell wide in the buffer:
-        assert_eq!(buffer.cells[1].as_ref().unwrap().glyph, 
+        assert_eq!(buffer.inner_buf[1].as_ref().unwrap().glyph, 
                    vec!['⚠', '\u{fe0f}']);
-        assert_eq!(buffer.cells[1].as_ref().unwrap().is_wide, true);
-        assert_eq!(buffer.cells[2].as_ref().unwrap().is_part, true);
+        assert_eq!(buffer.inner_buf[1].as_ref().unwrap().is_wide, true);
+        assert_eq!(buffer.inner_buf[2].as_ref().unwrap().is_part, true);
         // Overwrite wide char:
         buffer.sync_coord(0, 0);
         buffer.sync_content("a$z");
