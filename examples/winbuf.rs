@@ -6,13 +6,12 @@ use std::time::Duration;
 use std::mem::zeroed;
 use crate::tuitty_core::terminal::Term;
 use crate::tuitty_core::common::enums::Color;
-use crate::tuitty_core::system::wincon::style::into_fg;
 use crate::tuitty_core::system::wincon::output::{ CHAR_INFO, COORD, SMALL_RECT };
 
 
 fn main() {
     let ascii = "A";
-    let cjk = "園";
+    let cjk = "園----";
     let emoji = "⚠️";
     // let emoji = "🚧";
     let ch = cjk;
@@ -20,13 +19,13 @@ fn main() {
     let collected = ch.encode_utf16();
     println!("collected: {:?}", collected);
 
-    let buf_size = COORD {X: 10, Y: 1};
-    let buf_coord = COORD {X: 0, Y: 0};
+    let buf_size = COORD {X: 5, Y: 1};
+    let buf_offset = COORD {X: 0, Y: 0};
     let mut dest_rect = SMALL_RECT {
         Top: 0,
         Left: 0,
         Bottom: 1,
-        Right: 10,
+        Right: 5,
     };
     
     let mut term = Term::new().unwrap();
@@ -35,24 +34,48 @@ fn main() {
     term.enable_alt().unwrap();
 
     // INITIALIZE BUFFER TO BE OUTPUTTED
-    let mut read_buf: Vec<CHAR_INFO> = unsafe { vec![zeroed(); 10] };
+    let mut read_buf: Vec<CHAR_INFO> = unsafe { vec![zeroed(); 5] };
     for v in &mut read_buf {
         unsafe { *v.Char.UnicodeChar_mut() = ' ' as u16 }
-        v.Attributes = term.init_data().1;
+        v.Attributes = attr;
     }
 
-    // NODIFY THE READ BUFFER DIRECTLY
+    // MODIFY THE READ BUFFER DIRECTLY
     for (i, u) in collected.enumerate() {
         unsafe {
              *read_buf[i].Char.UnicodeChar_mut() = u;
-             read_buf[i].Attributes = into_fg(Color::Red, attr, attr)
+             read_buf[i].Attributes = 12; // 12 is FG Color Red
          }
      }
+    
+    // TESTING OFFSET
+    // unsafe {
+    //     *read_buf[3].Char.UnicodeChar_mut() = '園' as u16;
+    // }
+    // read_buf[3].Attributes = 12;
 
-    term.writebuf(read_buf.as_ptr(), buf_size, buf_coord, &mut dest_rect).unwrap();
+    term.paints(read_buf.as_ptr(), buf_size, buf_offset, &mut dest_rect).unwrap();
 
-    let mut read_buf_contents: [u16; 10] = [0; 10];
-    let mut read_buf_attribs: [u16; 10] = [0; 10];
+    let collected = emoji.encode_utf16();
+    for (i, u) in collected.enumerate() {
+        unsafe {
+             *read_buf[i+1].Char.UnicodeChar_mut() = u;
+             read_buf[i+1].Attributes = 12; // 12 is FG Color Red
+         }
+     }
+    let buf_size = COORD {X: 5, Y: 1};
+    let buf_offset = COORD {X: 1, Y: 0};
+    let mut dest_rect = SMALL_RECT {
+        Top: 1,
+        Left: 0,
+        Bottom: 1,
+        Right: 5,
+    };
+     term.paints(read_buf.as_ptr(), buf_size, buf_offset, &mut dest_rect).unwrap();
+
+
+    let mut read_buf_contents: [u16; 5] = [0; 5];
+    let mut read_buf_attribs: [u16; 5] = [0; 5];
     for (i, v) in read_buf.iter().enumerate() {
         unsafe {
             read_buf_contents[i] = *v.Char.UnicodeChar();

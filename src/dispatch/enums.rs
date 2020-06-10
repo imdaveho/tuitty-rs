@@ -28,9 +28,11 @@ pub enum Action {
     // SCREEN/OUTPUT
     Clear(Clear),
     Prints(String),
+    Printf(String),
     SetContent(String, i16, i16),
     Flush,
     Render,
+    Refresh,
     Resize(i16, i16),
     // STYLE
     SetFx(u32),

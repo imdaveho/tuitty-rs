@@ -175,4 +175,8 @@ impl ScreenStore {
     pub fn render(&mut self, term: &Term) -> Result<()> {
         self.data[self.id].buffer.render(term)
     }
+
+    pub fn refresh(&mut self, term: &Term) -> Result<()> {
+        self.data[self.id].buffer.refresh(term)
+    }
 }

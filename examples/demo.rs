@@ -19,6 +19,10 @@ fn main() {
     dispatch.signal(Raw);
     dispatch.signal(HideCursor);
     dispatch.signal(EnableMouse);
+    // NOTE: this applies the default attr to the screen's internal buffer
+    // TODO: we may want to make this call on init for the screen and upon
+    // switching / adding new screens.
+    dispatch.signal(Render);
 
     let breaker = Arc::new(AtomicBool::new(false));
     let breakrf = breaker.clone();
@@ -55,9 +59,10 @@ fn main() {
             // background.signal(Goto(12, 14));
             // background.signal(Prints(p));
             background.signal(SetContent(p, 12, 14));
-            background.signal(Render);
             background.signal(Clear(ClearKind::NewLn));
-            thread::sleep(Duration::from_millis(400));
+            // background.signal(Render);
+            background.signal(Refresh);  
+            thread::sleep(Duration::from_millis(100));
         }
     });
 
@@ -111,13 +116,15 @@ fn main() {
         if &event != "" {
             main_input.signal(SetFg(Color::Red));
             main_input.signal(SetContent(event, 0, 0));
-            main_input.signal(ResetStyles);
             // main_input.signal(Goto(0, 0));
             // main_input.signal(Prints(event));
-            main_input.signal(Clear(ClearKind::NewLn));
-            main_input.signal(Render);
+            main_input.signal(ResetStyles);
+            // main_input.signal(Clear(ClearKind::NewLn));
+            // main_input.signal(Render);
+            main_input.signal(Refresh);
         }
-        thread::sleep(Duration::from_millis(10));
+        thread::sleep(Duration::from_millis(40));
+
     }
 
     let _ = cycle_th.join();

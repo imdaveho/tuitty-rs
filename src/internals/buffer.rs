@@ -5,7 +5,7 @@ use super::{ Term, Color::{*, self}, Style, Clear };
 
 use crate::tuitty_core::common::enums::Effect;
 #[cfg(windows)]
-use crate::tuitty_core::system::wincon::style::{into_fg, into_bg, into_fx};
+use crate::tuitty_core::system::wincon::style::into_attr;
 #[cfg(windows)]
 use crate::tuitty_core::system::wincon::output::{ CHAR_INFO, COORD, SMALL_RECT };
 
@@ -488,59 +488,13 @@ impl ScreenBuffer {
 
     #[cfg(windows)]
     pub fn render(&mut self, term: &Term) -> std::io::Result<()> {
-        let (col, row) = self.coord();
-        term.goto(0, 0)?;
-        let spc = Cell {
-            glyph: vec![' '],
-            is_part: false,
-            is_wide: false,
-            style: (Reset, Reset, Effect::Reset as u32)
-        };
         let reset = term.init_data().1;
         let mut index = 0;
-        for oc in &self.inner_buf {
-            // let char_info = self.front_buf[index];
-            // let ch = unsafe { *char_info.Char.UnicodeChar() };
-            // let attr = char_info.Attributes;
-            // let cell = match oc {
-            //     Some(c) => c,
-            //     None => &spc
-            // };
-            // let cell_style = {
-            //     let fg = into_fg(cell.style.0, reset, reset);
-            //     let bg = into_bg(cell.style.1, fg, reset);
-            //     into_fx(cell.style.2, bg)
-            // };
-            // let ch_diff = (cell.glyph[0] as u16) == ch;
-            // let attr_diff = cell_style == attr;
-
-            // if ch_diff { unsafe {
-            //     *self.front_buf[index]
-            //         .Char.UnicodeChar_mut() = cell.glyph[0] as u16
-            // }}
-            // if attr_diff { self.front_buf[index].Attributes = cell_style }
-
-            // if cell.is_wide {
-            //     index += 1;
-            //     let char_info = self.front_buf[index];
-            //     let ch = unsafe { *char_info.Char.UnicodeChar() };
-            //     let attr = char_info.Attributes;
-            //     let ch_diff = (cell.glyph[1] as u16) == ch;
-            //     let attr_diff = cell_style == attr;
-            //     if ch_diff { unsafe {
-            //         *self.front_buf[index]
-            //             .Char.UnicodeChar_mut() = cell.glyph[1] as u16
-            //     }}
-            //     if attr_diff { self.front_buf[index].Attributes = cell_style }
-            // }
-            // index +=1;
-            match oc {
+        for cell in &self.inner_buf {
+            match cell {
                 Some(c) => {
-                    let style = into_fx(
-                        c.style.2, 
-                        into_bg(c.style.1, 
-                            into_fg(c.style.0, reset, reset),
-                        reset));
+                    let (f, b, fx) = c.style;
+                    let style = into_attr(f, b, fx, reset);
                     for ch in &c.glyph {
                         unsafe {
                             *self.front_buf[index]
@@ -550,118 +504,111 @@ impl ScreenBuffer {
                         index += 1
                     }
                 },
-                None => index +=1,
+                None => {
+                    unsafe {
+                        *self.front_buf[index]
+                            .Char.UnicodeChar_mut() = ' ' as u16;
+                    }
+                    self.front_buf[index].Attributes = reset;
+                    index +=1
+                }
             };
         }
         let (w, h) = self.size();
         let coord = COORD {X: 0, Y: 0};
         let size = COORD {X: w, Y: h};
         let mut dest = SMALL_RECT {Top: 0, Left: 0, Bottom: h, Right: w};
-        term.writebuf(self.front_buf.as_ptr(), size, coord, &mut dest)?;
-        term.goto(col, row)?;
+        term.paints(self.front_buf.as_ptr(), size, coord, &mut dest)?;
         Ok(())
     }
 
-    // #[cfg(windows)]
-    // pub fn render(&self, term: &Term) -> std::io::Result<()> {
-    //     let default = (Reset, Reset, Effect::Reset as u32);
-    //     let mut style = (Reset, Reset, Effect::Reset as u32);
-
-    //     let (col, row) = self.coord();
-    //     term.goto(0, 0)?;
-    //     let reset = term.init_data().1;
-
-    //     let mut change_index = 0;
-    //     let mut index = 0;
-    //     let mut current = reset;
-    //     // On Windows, we create the entire string to be printed at the end.
-    //     let mut chunk = String::with_capacity(self.capacity);
-    //     // For styles, we keep track of the new styles and their starting and
-    //     // and finishing indices, so that we can apply them _after_ printing
-    //     // all the characters out. This reduces the amount of calls needed to
-    //     // the winconsole api, and improve rendering speed for each "frame"
-    //     let mut words: Vec<(u16, i32, i32)> = vec![];
-    //     for cell in &self.inner_buf {
-    //         let spc = Cell {
-    //             glyph: vec![' '],
-    //             is_part: false,
-    //             is_wide: false,
-    //             style
-    //         };
-    //         let data = match cell { Some(c) => c, None => &spc };
-    //         for ch in &data.glyph { chunk.push(*ch) }
-    //         if data.is_part { index += 1; continue }
-            
-    //         // Completely reset style back to default.
-    //         if style != data.style && data.style == default {
-    //             // Append previous style if it isn't the default.
-    //             if current != reset {
-    //                 words.push((current, change_index, index - 1));
-    //             }
-    //             // Reset the current attr.
-    //             current = reset;
-    //             // Update the last change to the current index.
-    //             change_index = index;
-    //             // Reset the conditional.
-    //             style = default;
-    //         }
-    //         // Some styles are different.
-    //         else if style != data.style {
-    //             // Different Fg.
-    //             if style.0 != data.style.0 {
-    //                 if current != reset {
-    //                     words.push((current, change_index, index - 1));
-    //                 }
-    //                 current = foreground(style.0, current, reset);
-    //                 change_index = index;
-    //                 style.0 = data.style.0;
-    //             }
-    //             // Different Bg.
-    //             if style.1 != data.style.1 {
-    //                 if current != reset {
-    //                     words.push((current, change_index, index - 1));
-    //                 }
-    //                 current = background(style.1, current, reset);
-    //                 change_index = index;
-    //                 style.1 = data.style.1;
-    //             }
-    //             // Different Fx.
-    //             if style.2 != data.style.2 {
-    //                 if current != reset {
-    //                     words.push((current, change_index, index - 1));
-    //                 }
-    //                 current = effects(style.2, current);
-    //                 change_index = index;
-    //                 style.2 = data.style.2;
-    //             }
-    //         }
-    //         // Current style remains. Do nothing.
-    //         else { () }
-    //         index += 1;    
-    //     };
-    //     // Windows Console creates a new line after printing
-    //     // the last character in the buffer. To prevent this,
-    //     // we offset the max buffer capacity by -1.
-    //     chunk.pop(); 
-    //     if chunk.len() > 0 { term.prints(&chunk)? }
-    //     // Styles are appended based on the _previous_ style. Append
-    //     // the last remaining style to the list.
-    //     if current != reset {
-    //         words.push((current, change_index, index - 1));
-    //     }
-
-    //     for set in words {
-    //         let (word, start, finish) = set;
-    //         let length = (finish - start) as u32;
-    //         let coord = (
-    //             finish as i16 % self.width(),
-    //             finish as i16 / self.width()
-    //         );            
-    //         term.set_attrib(word, length, coord)?;
-    //     }
-    //     term.goto(col, row)?;
-    //     Ok(())
-    // }
+    #[cfg(windows)]
+    pub fn refresh(&mut self, term: &Term) -> std::io::Result<()> {
+        let reset = term.init_data().1;
+        let width = self.window.0;
+        let mut start: Option<i16> = None;
+        let mut left = 0; let mut top = 0;
+        let mut right = 0; let mut bottom = 0;
+        let mut index = 0;
+        for cell in &self.inner_buf {
+            match cell {
+                Some(c) => {
+                    for ch in &c.glyph {
+                        let ich = *ch as u16;
+                        let (f, b, fx) = c.style;
+                        let iattr = into_attr(f, b, fx, reset);
+                        let fch = unsafe {
+                            *self.front_buf[index].Char.UnicodeChar()
+                        };
+                        let fattr = self.front_buf[index].Attributes;
+                        if (ich != fch) || (iattr != fattr) {
+                            let (col, row) = (
+                                (index as i16 % width), 
+                                (index as i16 / width)
+                            );
+                            if start.is_none() { 
+                                start = Some(index as i16);
+                                left = col; top = row;
+                            }
+                            if col < left { left = col }
+                            if col > right { right = col }
+                            if row < top { top = row }
+                            if row > bottom { bottom = row }
+                            unsafe {
+                                *self.front_buf[index]
+                                    .Char.UnicodeChar_mut() = ich;
+                            }
+                            self.front_buf[index].Attributes = iattr;
+                        }
+                        index += 1;
+                    }
+                },
+                None => {
+                    let ich = ' ' as u16;
+                    let fch = unsafe {
+                        *self.front_buf[index].Char.UnicodeChar()
+                    };
+                    let fattr = self.front_buf[index].Attributes;
+                    if (ich != fch) || (fattr != reset) {
+                        let (col, row) = (
+                            (index as i16 % width), 
+                            (index as i16 / width)
+                        );
+                        if start.is_none() { 
+                            start = Some(index as i16);
+                            left = col; top = row;
+                        }
+                        if col < left { left = col }
+                        if col > right { right = col }
+                        if row < top { top = row }
+                        if row > bottom { bottom = row }
+                        unsafe {
+                            *self.front_buf[index]
+                                .Char.UnicodeChar_mut() = ich;
+                        }
+                        self.front_buf[index].Attributes = reset;
+                    }
+                    index += 1;
+                }
+            }
+        }
+        let size = COORD {
+            X: self.window.0,
+            Y: bottom + 1
+        };
+        let offset = COORD {
+            X: left, 
+            Y: top
+        };
+        let mut dest = SMALL_RECT {
+            Top: top, Left: left, Bottom: bottom, Right: right
+        };
+        term.paints(self.front_buf.as_ptr(), size, offset, &mut dest)?;
+        // let s = format!("W: {}, BB: {} | B: {}, H: {}", self.window.0, bottom + 1, bottom, self.window.1);
+        // term.goto(0, self.window.1 - 1)?;
+        // term.prints(&s)?;
+        Ok(())
+    }
 
 
     #[cfg(test)]

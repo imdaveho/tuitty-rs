@@ -170,14 +170,24 @@ pub fn execute(
             Ok(())
         },
 
+        Printf(s) => {
+            term.printf(&s)?;
+            store.sync_content(&s);
+            Ok(())
+        },
+
         SetContent(s, c, r) => {
             store.sync_goto(c, r);
             store.sync_content(&s);
             Ok(())
         },
+
+        // #[cfg(windows)]
+        // TODO: Paints(buf, size, offset, rect)
  
         Flush => term.flush(),
         Render => store.render(&term),
+        Refresh => store.refresh(&term),
 
         SetFx(fx) => {
             term.set_fx(fx)?;

@@ -12,13 +12,13 @@ pub struct EventEmitter {
 }
 
 
-pub struct EventHandle {
+pub struct EventReceiver {
     pub id: usize,
     pub event_rx: Receiver<Msg>,
     pub signal_tx: Sender<Cmd>,
 }
 
-impl EventHandle {
+impl EventReceiver {
     pub fn poll_async(&self) -> Option<Msg> {
         let mut iterator = self.event_rx.try_iter();
         iterator.next()

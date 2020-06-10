@@ -127,9 +127,9 @@ impl Dispatcher {
         }
     }
 
-    pub fn listen(&mut self) -> EventHandle {
+    pub fn listen(&mut self) -> EventReceiver {
         // Do not duplicate threads.
-        // If input handle exists, spawn another event handle.
+        // If input handle exists, spawn another event receiver.
         if self.input_handle.is_some() { return self.spawn() }
 
         // Setup input channel and Arc's to move to thread.
@@ -255,7 +255,7 @@ impl Dispatcher {
         }
     }
 
-    pub fn spawn(&self) -> EventHandle {
+    pub fn spawn(&self) -> EventReceiver {
         // let err_msg = "Error obtaining emitter registry lock";
         let (event_tx, event_rx) = channel();
         let id = self.randomish();
@@ -276,7 +276,7 @@ impl Dispatcher {
             },
         };
         let signal_tx = self.signal_tx.clone(); 
-        EventHandle { id, event_rx, signal_tx }
+        EventReceiver { id, event_rx, signal_tx }
     }
 
     pub fn signal(&self, action: Action) -> Result<(), SendError<Cmd>> {
