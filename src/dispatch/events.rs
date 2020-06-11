@@ -1,4 +1,6 @@
 use std::sync::mpsc::{Sender, Receiver, SendError};
+#[cfg(unix)]
+use super::InputEvent;
 use super::enums::{
     Cmd::{*, self}, Query::*,
     Msg, Action, Reply

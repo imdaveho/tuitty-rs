@@ -22,6 +22,7 @@ fn main() {
     // NOTE: this applies the default attr to the screen's internal buffer
     // TODO: we may want to make this call on init for the screen and upon
     // switching / adding new screens.
+    #[cfg(windows)]
     dispatch.signal(Render);
 
     let breaker = Arc::new(AtomicBool::new(false));
@@ -47,8 +48,12 @@ fn main() {
                 },
                 _ => (),
             }
-            let (x, y) = match background.request("raw_pos") {
-                Ok(Reply::Pos(col, row)) => (col, row),
+            // let (x, y) = match background.request("raw_pos") {
+            //     Ok(Reply::Pos(col, row)) => (col, row),
+            //     _ => (0, 0)
+            // };
+            let (x, y) = match background.request("coord") {
+                Ok(Reply::Coord(col, row)) => (col, row),
                 _ => (0, 0)
             };
 
@@ -60,8 +65,8 @@ fn main() {
             // background.signal(Prints(p));
             background.signal(SetContent(p, 12, 14));
             background.signal(Clear(ClearKind::NewLn));
-            // background.signal(Render);
-            background.signal(Refresh);  
+            background.signal(Render);
+            // background.signal(Refresh);
             thread::sleep(Duration::from_millis(100));
         }
     });
@@ -119,9 +124,9 @@ fn main() {
             // main_input.signal(Goto(0, 0));
             // main_input.signal(Prints(event));
             main_input.signal(ResetStyles);
-            // main_input.signal(Clear(ClearKind::NewLn));
-            // main_input.signal(Render);
-            main_input.signal(Refresh);
+            main_input.signal(Clear(ClearKind::NewLn));
+            main_input.signal(Render);
+            // main_input.signal(Refresh);
         }
         thread::sleep(Duration::from_millis(40));
 
