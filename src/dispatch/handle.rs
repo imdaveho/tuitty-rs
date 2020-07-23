@@ -3,9 +3,7 @@ use std::collections::HashMap;
 use std::sync::{
     Arc, Mutex, atomic::{AtomicUsize, Ordering}
 };
-use crate::tuitty_core::{
-    common::enums::{Color::*, Effect, Clear, Style},
-};
+use crate::tuitty_core::common::enums::{Color::*, Effect, Clear, Style};
 use crate::internals::ScreenStore;
 use super::events::EventEmitter;
 use super::enums::{

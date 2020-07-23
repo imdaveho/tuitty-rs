@@ -1,15 +1,15 @@
 // This module provides an internal representation of the contents that
 // make up the terminal screen.
 use crate::tuitty_core::common::unicode::{grapheme::*, wcwidth::*};
-use super::{ Term, Color::{*, self}, Style, Clear };
+use super::{Term, Color::{*, self}, Style, Clear};
 
 use crate::tuitty_core::common::enums::Effect;
 #[cfg(unix)]
-use crate::tuitty_core::system::ansi::style::{set_style, reset};
+use crate::tuitty_core::system::ansi::{style::{set_style, reset}, cursor::goto};
 #[cfg(windows)]
 use crate::tuitty_core::system::wincon::style::into_attr;
 #[cfg(windows)]
-use crate::tuitty_core::system::wincon::output::{ CHAR_INFO, COORD, SMALL_RECT };
+use crate::tuitty_core::system::wincon::output::{CHAR_INFO, COORD, SMALL_RECT};
 
 
 #[derive(Clone)]
@@ -433,7 +433,7 @@ impl ScreenBuffer {
         term.goto(0, 0)?;
         let default = (Reset, Reset, Effect::Reset as u32);
         let mut style = (Reset, Reset, Effect::Reset as u32);
-        let mut chunk = String::with_capacity(self.capacity);
+        let mut contents = String::with_capacity(self.capacity);
         for (i, cell) in self.inner_buf.iter().enumerate() {
             self.front_buf[i] = cell.clone();
             match cell {
@@ -441,56 +441,48 @@ impl ScreenBuffer {
                     if c.is_part { continue }
                     // Complete reset.
                     if style != c.style && c.style == default {
-                        // term.prints(&chunk)?;
-                        // chunk.clear();
-                        // term.reset_styles()?;
-                        chunk.push_str(&reset());
+                        contents.push_str(&reset());
                         style = default;
-                        for ch in &c.glyph { chunk.push(*ch) }
+                        for ch in &c.glyph { contents.push(*ch) }
                     }
                     // Some styles are different.
                     else if style != c.style {
-                        // term.prints(&chunk)?;
-                        // chunk.clear();
                         // Different Fg.
                         if style.0 != c.style.0 {
-                            // term.set_fg(c.style.0)?;
-                            chunk.push_str(&set_style(Style::Fg(c.style.0)));
+                            contents.push_str(
+                                &set_style(Style::Fg(c.style.0)));
                             style.0 = c.style.0;
                         }
                         // Different Bg.
                         if style.1 != c.style.1 {
-                            // term.set_bg(c.style.1)?;
-                            chunk.push_str(&set_style(Style::Bg(c.style.1)));
+                            contents.push_str(
+                                &set_style(Style::Bg(c.style.1)));
                             style.1 = c.style.1;
                         }
                         // Different Fx.
                         if style.2 != c.style.2 {
-                            // term.set_fx(c.style.2)?;
-                            chunk.push_str(&set_style(Style::Fx(c.style.2)));
+                            contents.push_str(
+                                &set_style(Style::Fx(c.style.2)));
                             style.2 = c.style.2;
                         }
-                        for ch in &c.glyph { chunk.push(*ch) }
+                        for ch in &c.glyph { contents.push(*ch) }
                     }
-                    // Current style remains. Expand chunk.
-                    else { for ch in &c.glyph { chunk.push(*ch) }}
+                    // Current style remains. Expand contents.
+                    else { for ch in &c.glyph { contents.push(*ch) }}
                 },
                 None => {
                     // Already default style.
-                    if style == default { chunk.push(' ') }
+                    if style == default { contents.push(' ') }
                     // Reset the previous style.
                     else {
-                        // term.prints(&chunk)?;
-                        // chunk.clear();
-                        // term.reset_styles()?;
-                        chunk.push_str(&reset());
+                        contents.push_str(&reset());
                         style = default;
-                        chunk.push(' ');
+                        contents.push(' ');
                     }
                 }
             }
         }
-        if !chunk.is_empty() { term.prints(&chunk)? }
+        if !contents.is_empty() { term.prints(&contents)? }
         term.goto(col, row)?;
         term.flush()?;
         Ok(())
@@ -500,47 +492,104 @@ impl ScreenBuffer {
     pub fn refresh(&mut self, term: &Term) -> std::io::Result<()> {
         let (col, row) = self.coord();
         let default = (Reset, Reset, Effect::Reset as u32);
-        let mut style = (Reset, Reset, Effect::Reset as u32);
+        // TODO: let mut style = (Reset, Reset, Effect::Reset as u32);
         let mut prev = 0;
-        let mut chunk = String::with_capacity(self.capacity);
+        let mut contents = String::with_capacity(self.capacity);
         for (i, cell) in self.inner_buf.iter().enumerate() {
             match cell {
                 Some(c) => {
-                    if let Some(f) = &self.front_buf[i] {
-                        if c.glyph != f.glyph {
-                            return Ok(())
-                        } else if style != f.style && f.style == default {
-                            return Ok(())
-                        } else if style != f.style {
-                            return Ok(())
-                        } else {}
-                    } else {
-                        // Frontbuf is None; Innerbuf is Some(c).
-                        if i != (prev + 1) {
-                        }
-                        return Ok(())
+                    if c.is_part {
+                        self.front_buf[i] = Some(c.clone());
+                        continue
                     }
+
+                    if let Some(f) = &self.front_buf[i] {
+                        // The cells are identical. Skip.
+                        if f.style == c.style && f.glyph == c.glyph {
+                            self.front_buf[i] = Some(c.clone());
+                            continue
+                        }
+
+                        // If you are here, it must mean a diff.
+                        if i != (prev + 1) {
+                            contents.push_str(&goto(
+                                i as i16 % self.window.0,
+                                i as i16 / self.window.0))
+                        }
+
+                        // Complete reset.
+                        if f.style != c.style && c.style == default {
+                            contents.push_str(&reset());
+                        }
+                        // Different styles between front and inner bufs.
+                        else if f.style != c.style {
+                            // Different Fg.
+                            if f.style.0 != c.style.0 {
+                                contents.push_str(
+                                    &set_style(Style::Fg(c.style.0)));
+                            }
+                            // Different Bg.
+                            if f.style.1 != c.style.1 {
+                                contents.push_str(
+                                    &set_style(Style::Bg(c.style.1)));
+                            }
+                            // Different Fx.
+                            // if f.style.2 != c.style.2 {
+                            //     contents.push_str(
+                            //         &set_style(Style::Fx(c.style.2)));
+                            // }
+                        }
+                        // Different chars between front and inner bufs.
+                        for ch in &c.glyph { contents.push(*ch) }
+                        contents.push_str(&reset());
+                        prev = i;
+                    }
+                    // Different: frontbuf is None; innerbuf is Some(c).
+                    else {
+                        if i != (prev + 1) {
+                            contents.push_str(&goto(
+                                i as i16 % self.window.0,
+                                i as i16 / self.window.0))
+                        }
+                        if c.style == default {
+                            for ch in &c.glyph { contents.push(*ch) }
+                        }
+                        else {
+                            // contents.push_str(&format!(
+                            //     "{}{}{}",
+                            //     set_style(Style::Fg(c.style.0)),
+                            //     set_style(Style::Bg(c.style.1)),
+                            //     set_style(Style::Fx(c.style.2))));
+                            contents.push_str(&format!(
+                                "{}{}",
+                                set_style(Style::Fg(c.style.0)),
+                                set_style(Style::Bg(c.style.1))));
+                            for ch in &c.glyph { contents.push(*ch) }
+                            contents.push_str(&reset());
+                        }
+                        prev = i;
+                    }
+
                     self.front_buf[i] = Some(c.clone());
                 },
                 None => {
                     if self.front_buf[i].is_some() {
-                        // If not consecutive, go to new coord.
                         if i != (prev + 1) {
-                            term.prints(&chunk)?;
-                            chunk.clear();
-                            term.goto(i as i16 % self.window.0,
-                                      i as i16 / self.window.0)?
+                            contents.push_str(&goto(
+                                i as i16 % self.window.0,
+                                i as i16 / self.window.0));
+                            contents.push_str(&reset());
                         }
-                        term.reset_styles()?;
-                        style = default;
-                        chunk.push(' ');
-                        self.front_buf[i] = None;
+                        contents.push(' ');
                         prev = i;
                     }
+                    self.front_buf[i] = None;
                 }
             }
         }
-
+        if !contents.is_empty() { term.prints(&contents)? }
+        term.goto(col, row)?;
+        term.flush()?;
         Ok(())
     }
 
@@ -662,9 +711,6 @@ impl ScreenBuffer {
             Top: top, Left: left, Bottom: bottom, Right: right
         };
         term.paints(self.front_buf.as_ptr(), size, offset, &mut dest)?;
-        // let s = format!("W: {}, BB: {} | B: {}, H: {}", self.window.0, bottom + 1, bottom, self.window.1);
-        // term.goto(0, self.window.1 - 1)?;
-        // term.prints(&s)?;
         Ok(())
     }
 

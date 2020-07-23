@@ -65,8 +65,8 @@ fn main() {
             // background.signal(Prints(p));
             background.signal(SetContent(p, 12, 14));
             background.signal(Clear(ClearKind::NewLn));
-            background.signal(Render);
-            // background.signal(Refresh);
+            // background.signal(Render);
+            background.signal(Refresh);
             thread::sleep(Duration::from_millis(100));
         }
     });
@@ -125,8 +125,8 @@ fn main() {
             // main_input.signal(Prints(event));
             main_input.signal(ResetStyles);
             main_input.signal(Clear(ClearKind::NewLn));
-            main_input.signal(Render);
-            // main_input.signal(Refresh);
+            // main_input.signal(Render);
+            main_input.signal(Refresh);
         }
         thread::sleep(Duration::from_millis(40));
 
